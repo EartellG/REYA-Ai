@@ -1,6 +1,7 @@
 from voice.tts import speak
 from llm_interface import get_response, get_structured_reasoning_prompt
 from llm_interface import classify_intent
+from llm_interface import query_ollama
 from features import notes, reminders, web_search
 from voice.stt import wait_for_wake_word, listen_for_command
 from intent import recognize_intent

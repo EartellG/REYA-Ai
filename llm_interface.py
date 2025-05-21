@@ -36,28 +36,15 @@ Only return the intent label.
 
 # Build the structured reasoning prompt from memory
 def get_structured_reasoning_prompt(user_input, history):
-    # Normalize history format
-    formatted_history = []
-    for item in history:
-        if isinstance(item, dict):
-            user = item.get("input") or item.get("user_input") or "unknown"
-            reya = item.get("response") or item.get("assistant_response") or "..."
-        elif isinstance(item, tuple) and len(item) == 2:
-            user, reya = item
-        else:
-            continue
-        formatted_history.append(f"User: {user}\nReya: {reya}")
+    context = "\n".join(
+        [f"User: {item['user_input']}\nReya: {item['assistant_response']}" for item in history]
+    )
 
-    context = "\n".join(formatted_history)
-
-    prompt = f"""
-You are REYA, a helpful assistant skilled in logic and analysis.
-Here is the conversation so far:
+    prompt = f"""You are REYA, a helpful and logical AI assistant. Answer the user's latest question clearly and concisely using prior context only if relevant.
 
 {context}
 
-Now analyze and respond to the user's latest question.
 User: {user_input}
 Reya:"""
-
     return prompt
+

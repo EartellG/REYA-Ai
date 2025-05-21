@@ -154,6 +154,16 @@ class ContextualMemory:
         [f"User: {conv['user_input']}\nREYA: {conv['assistant_response']}" for conv in history]
     ) or "No prior context."
 
+    def remember(self, user_input, assistant_response):
+     """Store the latest interaction into memory."""
+     self.history.append({
+        "user_input": user_input,
+        "assistant_response": assistant_response,
+        "timestamp": datetime.datetime.now().isoformat(),
+        "context": {}  # You can enhance this with intent, entities, etc.
+    })
+
+
 
 # -------------------------------------------------
 # 2. Proactive Assistance

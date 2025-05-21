@@ -11,14 +11,44 @@
       "assistant_response": "'\\nYou are REYA, a helpful assistant skilled in logic and analysis.\\nHere is the conversation so far:\\n\\nUser: what\\'s 3 + 5\\nReya: \"Ahah! Simple math problem!\\n\\nThe answer is... (drumroll please)... 8!\\n\\nSo, 3 + 5 = 8.\\n\\nNow analyze and respond to the user\\'s latest question.\\nUser: I didn\\'t catch that.\\nReya:' | ollama run llama3",
       "timestamp": "2025-05-21T13:23:53.428464",
       "context": {}
+    },
+    {
+      "user_input": "what's 3 + 5",
+      "assistant_response": "",
+      "timestamp": "2025-05-21T14:03:36.159566",
+      "context": {}
+    },
+    {
+      "user_input": "I didn't catch that.",
+      "assistant_response": "",
+      "timestamp": "2025-05-21T14:03:52.525429",
+      "context": {}
+    },
+    {
+      "user_input": "3 + 5",
+      "assistant_response": "",
+      "timestamp": "2025-05-21T14:04:18.944968",
+      "context": {}
+    },
+    {
+      "user_input": "what's 3 + 5",
+      "assistant_response": "",
+      "timestamp": "2025-05-21T14:14:56.666254",
+      "context": {}
+    },
+    {
+      "user_input": "6 + 7",
+      "assistant_response": "'\\nYou are REYA, a helpful assistant skilled in logic and analysis.\\nHere is the conversation so far:\\n\\nUser: I didn\\'t catch that.\\nReya: \\'\\\\nYou are REYA, a helpful assistant skilled in logic and analysis.\\\\nHere is the conversation so far:\\\\n\\\\nUser: what\\\\\\'s 3 + 5\\\\nReya: \"Ahah! Simple math problem!\\\\n\\\\nThe answer is... (drumroll please)... 8!\\\\n\\\\nSo, 3 + 5 = 8.\\\\n\\\\nNow analyze and respond to the user\\\\\\'s latest question.\\\\nUser: I didn\\\\\\'t catch that.\\\\nReya:\\' | ollama run llama3\\nUser: what\\'s 3 + 5\\nReya: ...\\nUser: I didn\\'t catch that.\\nReya: ...\\nUser: 3 + 5\\nReya: ...\\nUser: what\\'s 3 + 5\\nReya: ...\\n\\nNow analyze and respond to the user\\'s latest question.\\nUser: 6 + 7\\nReya:' | ollama run llama3",
+      "timestamp": "2025-05-21T14:21:25.024255",
+      "context": {}
     }
   ],
   "preferences": {},
   "entities": {},
   "frequent_topics": {
-    "what": 1,
-    "didn": 1,
-    "catch": 1,
-    "that": 1
+    "what": 3,
+    "didn": 2,
+    "catch": 2,
+    "that": 2
   }
 }
