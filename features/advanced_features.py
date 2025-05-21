@@ -33,18 +33,18 @@ class ContextualMemory:
     def __init__(self, memory_file: str = "memory/user_context.json"):
         """Initialize the contextual memory system."""
         self.memory_file = memory_file
-        self.memory = self._load_memory()
+        self.history = self._load_memory()
         self._ensure_memory_structure()
     def _ensure_memory_structure(self):
         """Ensure all required memory structures exist."""
-        if "conversations" not in self.memory:
-            self.memory["conversations"] = []
-        if "preferences" not in self.memory:
-            self.memory["preferences"] = {}
-        if "entities" not in self.memory:
-            self.memory["entities"] = {}
-        if "frequent_topics" not in self.memory:
-            self.memory["frequent_topics"] = {}
+        if "conversations" not in self.history:
+            self.history["conversations"] = []
+        if "preferences" not in self.history:
+            self.history["preferences"] = {}
+        if "entities" not in self.history:
+            self.history["entities"] = {}
+        if "frequent_topics" not in self.history:
+            self.history["frequent_topics"] = {}
             
     def _load_memory(self) -> Dict:
         """Load memory from file or create if it doesn't exist."""
@@ -63,7 +63,7 @@ class ContextualMemory:
         """Save memory to file."""
         try:
             with open(self.memory_file, 'w') as f:
-                json.dump(self.memory, f, indent=2)
+                json.dump(self.history, f, indent=2)
         except Exception as e:
             logger.error(f"Error saving memory: {e}")
     
@@ -80,7 +80,7 @@ class ContextualMemory:
             "context": context or {}
         }
         
-        self.memory["conversations"].append(conversation)
+        self.history["conversations"].append(conversation)
         self._update_frequent_topics(user_input)
         self.save()
         
@@ -89,53 +89,53 @@ class ContextualMemory:
         # Simple keyword extraction (in a real system, use NLP)
         keywords = re.findall(r'\b\w{4,}\b', text.lower())
         for keyword in keywords:
-            if keyword in self.memory["frequent_topics"]:
-                self.memory["frequent_topics"][keyword] += 1
+            if keyword in self.history["frequent_topics"]:
+                self.history["frequent_topics"][keyword] += 1
             else:
-                self.memory["frequent_topics"][keyword] = 1
+                self.history["frequent_topics"][keyword] = 1
     
     def set_preference(self, category: str, key: str, value: Any):
         """Set a user preference."""
-        if category not in self.memory["preferences"]:
-            self.memory["preferences"][category] = {}
+        if category not in self.history["preferences"]:
+            self.history["preferences"][category] = {}
             
-        self.memory["preferences"][category][key] = value
+        self.history["preferences"][category][key] = value
         self.save()
     
     def get_preference(self, category: str, key: str, default: Any = None) -> Any:
         """Get a user preference."""
         try:
-            return self.memory["preferences"][category][key]
+            return self.history["preferences"][category][key]
         except KeyError:
             return default
     
     def add_entity(self, entity_type: str, name: str, properties: Dict):
         """Add or update an entity (person, place, thing)."""
-        if entity_type not in self.memory["entities"]:
-            self.memory["entities"][entity_type] = {}
+        if entity_type not in self.history["entities"]:
+            self.history["entities"][entity_type] = {}
             
-        if name in self.memory["entities"][entity_type]:
-            self.memory["entities"][entity_type][name].update(properties)
+        if name in self.history["entities"][entity_type]:
+            self.history["entities"][entity_type][name].update(properties)
         else:
-            self.memory["entities"][entity_type][name] = properties
+            self.history["entities"][entity_type][name] = properties
             
         self.save()
     
     def get_entity(self, entity_type: str, name: str) -> Optional[Dict]:
         """Get information about a specific entity."""
         try:
-            return self.memory["entities"][entity_type][name]
+            return self.history["entities"][entity_type][name]
         except KeyError:
             return None
     
     def get_recent_conversations(self, count: int = 5) -> List[Dict]:
         """Retrieve the most recent conversations."""
-        return self.memory["conversations"][-count:] if self.memory["conversations"] else []
+        return self.history["conversations"][-count:] if self.history["conversations"] else []
     
     def search_conversations(self, query: str) -> List[Dict]:
         """Search conversations for a specific query."""
         results = []
-        for conv in self.memory["conversations"]:
+        for conv in self.history["conversations"]:
             if (query.lower() in conv["user_input"].lower() or 
                 query.lower() in conv["assistant_response"].lower()):
                 results.append(conv)
@@ -143,16 +143,15 @@ class ContextualMemory:
     
     def get_most_frequent_topics(self, count: int = 5) -> List[Tuple[str, int]]:
         """Get the most frequently discussed topics."""
-        topics = sorted(self.memory["frequent_topics"].items(), 
+        topics = sorted(self.history["frequent_topics"].items(), 
                        key=lambda x: x[1], reverse=True)
         return topics[:count]
     
-    def recall(self) -> str:
-     """Return the last 5 interactions as a formatted string."""
-     history = self.get_recent_conversations()
-     return "\n".join(
-        [f"User: {conv['user_input']}\nREYA: {conv['assistant_response']}" for conv in history]
-    ) or "No prior context."
+    def recall(self):
+     return {
+        "history": self.history
+    }
+
 
     def remember(self, user_input, assistant_response):
      """Store the latest interaction into memory."""
@@ -162,6 +161,7 @@ class ContextualMemory:
         "timestamp": datetime.datetime.now().isoformat(),
         "context": {}  # You can enhance this with intent, entities, etc.
     })
+     
 
 
 
@@ -177,7 +177,7 @@ class ProactiveAssistance:
     
     def __init__(self, memory: ContextualMemory, check_interval: int = 3600):
         """Initialize proactive assistance with contextual memory."""
-        self.memory = memory
+        self.history = memory
         self.check_interval = check_interval  # seconds
         self.reminders = []
         self.patterns = []

@@ -74,15 +74,16 @@ while True:
 
 # Structured prompt with context
 context_data = memory.recall()
-history = context_data.get("history", [])
+history = context_data.get("conversations", [])
 structured_prompt = get_structured_reasoning_prompt(user_input, history)
 response = query_ollama(structured_prompt, model="llama3")
-
 speak(response)
-memory.remember({
+
+memory.remember(user_input, response)
+{
     "user_input": user_input,
     "assistant_response": response
-})
+}
 
 # Optionally: Let REYA ask a question back
 follow_up = f"What would you like me to do next related to '{user_input}'?"
@@ -140,7 +141,7 @@ while True:
     else:
         context = memory.recall()
         prompt = get_structured_reasoning_prompt(user_input, context)
-        response = get_response(prompt)
+        response = get_response(prompt, history)
         speak(response)
         memory.add(user_input, response)
 

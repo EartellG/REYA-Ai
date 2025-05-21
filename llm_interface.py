@@ -36,15 +36,26 @@ Only return the intent label.
 
 # Build the structured reasoning prompt from memory
 def get_structured_reasoning_prompt(user_input, history):
-    context = "\n".join(
-        [f"User: {item['user_input']}\nReya: {item['assistant_response']}" for item in history]
+    """
+    Build a structured prompt that emphasizes answering the current question,
+    and only uses prior context if it's clearly helpful or related.
+    """
+    # Optionally extract only last 1–2 interactions for light context
+    relevant_context = history[-2:] if isinstance(history, list) else []
+
+    context_block = ""
+    for item in relevant_context:
+        context_block += f"User: {item['user_input']}\nReya: {item['assistant_response']}\n"
+
+    # Build the final prompt
+    prompt = (
+        "You are REYA, a helpful and logical AI assistant.\n"
+        "Always answer the user's **current** question clearly and concisely.\n"
+        "Only refer to prior context if it directly helps answer the question.\n\n"
     )
 
-    prompt = f"""You are REYA, a helpful and logical AI assistant. Answer the user's latest question clearly and concisely using prior context only if relevant.
+    if context_block:
+        prompt += f"Relevant past context:\n{context_block}\n"
 
-{context}
-
-User: {user_input}
-Reya:"""
+    prompt += f"User: {user_input}\nReya:"
     return prompt
-
