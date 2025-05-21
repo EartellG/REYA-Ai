@@ -41,14 +41,33 @@
       "assistant_response": "'\\nYou are REYA, a helpful assistant skilled in logic and analysis.\\nHere is the conversation so far:\\n\\nUser: I didn\\'t catch that.\\nReya: \\'\\\\nYou are REYA, a helpful assistant skilled in logic and analysis.\\\\nHere is the conversation so far:\\\\n\\\\nUser: what\\\\\\'s 3 + 5\\\\nReya: \"Ahah! Simple math problem!\\\\n\\\\nThe answer is... (drumroll please)... 8!\\\\n\\\\nSo, 3 + 5 = 8.\\\\n\\\\nNow analyze and respond to the user\\\\\\'s latest question.\\\\nUser: I didn\\\\\\'t catch that.\\\\nReya:\\' | ollama run llama3\\nUser: what\\'s 3 + 5\\nReya: ...\\nUser: I didn\\'t catch that.\\nReya: ...\\nUser: 3 + 5\\nReya: ...\\nUser: what\\'s 3 + 5\\nReya: ...\\n\\nNow analyze and respond to the user\\'s latest question.\\nUser: 6 + 7\\nReya:' | ollama run llama3",
       "timestamp": "2025-05-21T14:21:25.024255",
       "context": {}
+    },
+    {
+      "user_input": "6 + 6",
+      "assistant_response": "'You are REYA, a helpful and logical AI assistant. Answer the user\\'s latest question clearly and concisely using prior context only if relevant.\\n\\nUser: what\\'s 3 + 5\\nReya: \\nUser: I didn\\'t catch that.\\nReya: \\nUser: 3 + 5\\nReya: \\nUser: what\\'s 3 + 5\\nReya: \\nUser: 6 + 7\\nReya: \\'\\\\nYou are REYA, a helpful assistant skilled in logic and analysis.\\\\nHere is the conversation so far:\\\\n\\\\nUser: I didn\\\\\\'t catch that.\\\\nReya: \\\\\\'\\\\\\\\nYou are REYA, a helpful assistant skilled in logic and analysis.\\\\\\\\nHere is the conversation so far:\\\\\\\\n\\\\\\\\nUser: what\\\\\\\\\\\\\\'s 3 + 5\\\\\\\\nReya: \"Ahah! Simple math problem!\\\\\\\\n\\\\\\\\nThe answer is... (drumroll please)... 8!\\\\\\\\n\\\\\\\\nSo, 3 + 5 = 8.\\\\\\\\n\\\\\\\\nNow analyze and respond to the user\\\\\\\\\\\\\\'s latest question.\\\\\\\\nUser: I didn\\\\\\\\\\\\\\'t catch that.\\\\\\\\nReya:\\\\\\' | ollama run llama3\\\\nUser: what\\\\\\'s 3 + 5\\\\nReya: ...\\\\nUser: I didn\\\\\\'t catch that.\\\\nReya: ...\\\\nUser: 3 + 5\\\\nReya: ...\\\\nUser: what\\\\\\'s 3 + 5\\\\nReya: ...\\\\n\\\\nNow analyze and respond to the user\\\\\\'s latest question.\\\\nUser: 6 + 7\\\\nReya:\\' | ollama run llama3\\n\\nUser: 6 + 6\\nReya:' | ollama run llama3",
+      "timestamp": "2025-05-21T14:41:19.444923",
+      "context": {}
+    },
+    {
+      "user_input": "whats 6 + 6",
+      "assistant_response": "",
+      "timestamp": "2025-05-21T14:52:30.944721",
+      "context": {}
+    },
+    {
+      "user_input": "what's 6 + 6",
+      "assistant_response": "",
+      "timestamp": "2025-05-21T14:52:46.530226",
+      "context": {}
     }
   ],
   "preferences": {},
   "entities": {},
   "frequent_topics": {
-    "what": 3,
+    "what": 4,
     "didn": 2,
     "catch": 2,
-    "that": 2
+    "that": 2,
+    "whats": 1
   }
 }
