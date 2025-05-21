@@ -1,8 +1,18 @@
 import subprocess
 
-def get_response(prompt):
-    result = subprocess.run(["ollama", "run", "mistral"], input=prompt, text=True, capture_output=True)
+# llm_interface.py
+def get_response(input_text):
+    # If using a local model like Ollama
+    import subprocess
+
+    result = subprocess.run(
+        ["ollama", "run", "llama3", input_text],
+        capture_output=True,
+        text=True
+    )
     return result.stdout
+
+
 
 def classify_intent(prompt: str) -> str:
     system_prompt = """
@@ -17,9 +27,11 @@ Only return the intent label.
 """
     input_text = f"{system_prompt}\nUser: {prompt}\nIntent:"
     result = subprocess.run(
-        ["ollama", "run", "mistral"],
-        input=input_text,
-        text=True,
-        capture_output=True
-    )
+    ["ollama", "run", "mistral"],
+    input=input_text,
+    text=True,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.DEVNULL,  # Hide error messages
+    encoding="utf-8",           # Ensure clean Unicode handling
+)
     return result.stdout.strip().lower()

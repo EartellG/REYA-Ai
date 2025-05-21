@@ -1,5 +1,6 @@
 import requests
 from bs4 import BeautifulSoup
+from duckduckgo_search import DDGS
 
 def search(query):
     url = f"https://duckduckgo.com/html/?q={query}"
@@ -10,3 +11,14 @@ def search(query):
     if results:
         return results[0].text.strip()
     return "I couldn't find anything."
+
+
+
+def search_web(query):
+    print(f"🔎 Searching: {query}")
+    with DDGS() as ddgs:
+        results = ddgs.text(query)
+        for r in results:
+            if r.get("body"):
+                return r["body"]
+        return "Sorry, I couldn't find anything."

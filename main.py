@@ -7,18 +7,26 @@ from voice.stt import listen
 from voice.stt import wait_for_wake_word
 from voice.tts import speak
 from features.advanced_features import (
-    ContextualMemory, 
-    ProactiveAssistance,
-    TaskAutomation,
-    EmotionalIntelligence,
-    PersonalizedKnowledgeBase,
-    SmartDeviceIntegration,
-    PrivacyControls,
-    VoiceInterface,
-    MultiModalProcessor,
-    REYA_AI,
-    
+      ContextualMemory, 
+      ProactiveAssistance,
+      TaskAutomation,
+      EmotionalIntelligence,
+      PersonalizedKnowledgeBase,
+      SmartDeviceIntegration,
+      PrivacyControls,
+      VoiceInterface,
+      MultiModalProcessor,
 )
+
+memory = ContextualMemory(memory_file="path/to/memory/file.json")
+proactive = ProactiveAssistance(memory)
+automation = TaskAutomation()
+emotions = EmotionalIntelligence()
+knowledge = PersonalizedKnowledgeBase()
+devices = SmartDeviceIntegration()
+privacy = PrivacyControls()
+voice = VoiceInterface()
+multimodal = MultiModalProcessor()
 
 
 while True:

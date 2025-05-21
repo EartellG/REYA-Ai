@@ -1,0 +1,21 @@
+{
+  "data_retention": {
+    "conversation_history_days": 30,
+    "keep_user_preferences": true,
+    "keep_learned_entities": true
+  },
+  "data_sharing": {
+    "allow_anonymized_data": false,
+    "allow_third_party_processing": false
+  },
+  "sensitive_topics": {
+    "health": false,
+    "financial": false,
+    "location": false,
+    "personal_relationships": false
+  },
+  "service_integration": {
+    "allow_cloud_processing": true,
+    "allow_api_calls": true
+  }
+}
