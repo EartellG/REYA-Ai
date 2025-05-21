@@ -155,7 +155,7 @@ class ContextualMemory:
 
     def remember(self, user_input, assistant_response):
      """Store the latest interaction into memory."""
-     self.history.append({
+     self.history["conversations"].append( {
         "user_input": user_input,
         "assistant_response": assistant_response,
         "timestamp": datetime.datetime.now().isoformat(),
