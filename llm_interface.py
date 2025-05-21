@@ -1,16 +1,18 @@
 import subprocess
 
-# Query Ollama LLM by model name
 def query_ollama(prompt: str, model: str = "llama3") -> str:
-    result = subprocess.run(
-        ["ollama", "run", model],
-        input=prompt,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-        encoding="utf-8"
-    )
-    return result.stdout.strip()
+    try:
+        result = subprocess.run(
+            f'echo {prompt!r} | ollama run {model}',
+            shell=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8"
+        )
+        return result.stdout.strip()
+    except Exception as e:
+        return f"[Error querying Ollama]: {e}"
+
 
 # Main function to get a response from the assistant
 def get_response(user_input, history):

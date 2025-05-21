@@ -71,12 +71,6 @@ while True:
     speak(response)
     memory.add_conversation(user_input, response)
 
-    while True:
-     wait_for_wake_word()  # Wait for "Reya"
-     speak("I'm listening.")
-     print(" Listening for your command...")
-     time.sleep(1)  # Add a 1-second delayime
-
 # Structured prompt with context
 context = memory.recall()
 structured_prompt = get_structured_reasoning_prompt(user_input, context)
