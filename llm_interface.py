@@ -35,3 +35,17 @@ Only return the intent label.
     encoding="utf-8",           # Ensure clean Unicode handling
 )
     return result.stdout.strip().lower()
+
+def get_structured_reasoning_prompt(user_input, history):
+    prompt = get_structured_reasoning_prompt(user_input, memory.recall())
+    context = "\n".join([f"User: {q}\nReya: {a}" for q, a in history])
+    prompt = f"""
+You are REYA, a helpful assistant skilled in logic and analysis.
+{context}
+
+Now analyze and respond to the user's latest question.
+User: {user_input}
+Reya:"""
+    return prompt
+
+

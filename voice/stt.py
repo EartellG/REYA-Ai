@@ -1,25 +1,38 @@
 import speech_recognition as sr
+from fuzzywuzzy import fuzz
 
-def wait_for_wake_word():
-    recognizer = sr.Recognizer()
-    mic = sr.Microphone()
-    with mic as source:
-        print("🎙️ Waiting for wake word 'Hey REYA'...")
-        audio = recognizer.listen(source)
-        try:
-            text = recognizer.recognize_google(audio).lower()
-            print(f"You said: {text}")
-            return "reya" in text
-        except sr.UnknownValueError:
-            return False
+recognizer = sr.Recognizer()
 
-def listen():
-    recognizer = sr.Recognizer()
-    mic = sr.Microphone()
-    with mic as source:
-        print("🎧 Listening...")
-        audio = recognizer.listen(source)
+def match_phrase(heard, target, threshold=80):
+    return fuzz.partial_ratio(heard.lower(), target.lower()) >= threshold
+
+def wait_for_wake_word(wake_word="reya"):
+    print("🎧 Listening for wake word...")
+    while True:
+        with sr.Microphone() as source:
+            audio = recognizer.listen(source)
         try:
-            return recognizer.recognize_google(audio)
+            transcript = recognizer.recognize_google(audio)
+            print(f"You said: {transcript}")
+            if match_phrase(transcript, wake_word):
+                print("👂 Wake word detected!")
+                return True
         except sr.UnknownValueError:
-            return ""
+            pass  # skip unrecognized speech
+        except sr.RequestError:
+            print("❌ Speech recognition service error.")
+
+def listen_for_command():
+    print("🎤 Listening for your command...")
+    with sr.Microphone() as source:
+        audio = recognizer.listen(source)
+    try:
+        command = recognizer.recognize_google(audio)
+        print(f"📥 You said: {command}")
+        return command
+    except sr.UnknownValueError:
+        print("😕 I didn't catch that.")
+        return ""
+    except sr.RequestError:
+        print("❌ Speech recognition service error.")
+        return ""
