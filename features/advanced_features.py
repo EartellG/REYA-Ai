@@ -35,15 +35,6 @@ class ContextualMemory:
         self.memory_file = memory_file
         self.memory = self._load_memory()
         self._ensure_memory_structure()
-
-        def recall(self) -> str:
-         """Return the last 5 interactions as a formatted string."""
-        history = self.get_recent_conversations()
-        return "\n".join(
-        [f"User: {conv['user_input']}\nREYA: {conv['assistant_response']}" for conv in history]
-    ) or "No prior context."
-
-        
     def _ensure_memory_structure(self):
         """Ensure all required memory structures exist."""
         if "conversations" not in self.memory:
@@ -155,6 +146,14 @@ class ContextualMemory:
         topics = sorted(self.memory["frequent_topics"].items(), 
                        key=lambda x: x[1], reverse=True)
         return topics[:count]
+    
+    def recall(self) -> str:
+     """Return the last 5 interactions as a formatted string."""
+     history = self.get_recent_conversations()
+     return "\n".join(
+        [f"User: {conv['user_input']}\nREYA: {conv['assistant_response']}" for conv in history]
+    ) or "No prior context."
+
 
 # -------------------------------------------------
 # 2. Proactive Assistance

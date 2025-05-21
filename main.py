@@ -42,7 +42,7 @@ print("🔁 REYA is running...")
 
 while True:
     wait_for_wake_word()  # 👂 Listen for "Reya"
-    speak("I'm listening.")  # Optional response to confirm wake
+    # speak("I'm listening.")  # Optional response to confirm wake
 
     user_input = listen_for_command()
     print(f"👤 You said: {user_input}")
@@ -74,7 +74,7 @@ while True:
 # Structured prompt with context
 context = memory.recall()
 structured_prompt = get_structured_reasoning_prompt(user_input, context)
-response = get_response(structured_prompt)
+response = query_ollama(structured_prompt, model="llama3")
 
 speak(response)
 memory.remember(user_input, response)
