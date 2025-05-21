@@ -1,15 +1,16 @@
 from voice.tts import speak
-from llm_interface import get_response
+from llm_interface import get_response, get_structured_reasoning_prompt
 from llm_interface import classify_intent
 from features import notes, reminders, web_search
 from voice.stt import wait_for_wake_word, listen_for_command
 from intent import recognize_intent
+from features.advanced_features import ContextualMemory
+from features.logic_engine import evaluate_logic
 from features.stackoverflow_search import search_stackoverflow
 from features.youtube_search import get_youtube_metadata
 from features.reddit_search import search_reddit
 from features.web_search import search_web
 from voice.stt import listen_for_command
-from memory import memory
 from features.advanced_features import (
       ContextualMemory, 
       ProactiveAssistance,
@@ -22,7 +23,7 @@ from features.advanced_features import (
       MultiModalProcessor,
 )
 
-memory = ContextualMemory(memory_file="path/to/memory/file.json")
+memory = ContextualMemory()
 proactive = ProactiveAssistance(memory)
 automation = TaskAutomation()
 emotions = EmotionalIntelligence()
@@ -31,64 +32,121 @@ devices = SmartDeviceIntegration()
 privacy = PrivacyControls()
 voice = VoiceInterface()
 multimodal = MultiModalProcessor()
+intent = recognize_intent("some_command")
 
-# After generating a response:
-memory.remember(user_input, response)
+
+
+import time
 
 print("🔁 REYA is running...")
 
 while True:
-    wait_for_wake_word()  # 👂 Wait for "Reya"
-    speak("I'm listening.")
-    print("🎧 Listening for your command...")
+    wait_for_wake_word()  # 👂 Listen for "Reya"
+    speak("I'm listening.")  # Optional response to confirm wake
 
     user_input = listen_for_command()
-    print("You said:", user_input)
+    print(f"👤 You said: {user_input}")
 
-    intent = recognize_intent(user_input)
-
-    if intent == "exit":
-        speak("Goodbye!")
+    # --- Handle exit ---
+    if user_input.lower() in ["quit", "exit", "stop", "goodbye"]:
+        speak("Goodbye.")
         break
 
-    elif intent == "greeting":
-        speak("Hello! How can I assist you today?")
+    # --- Logic engine trigger ---
+    if any(keyword in user_input.lower() for keyword in ["and", "or", "not", "true", "false"]):
+        result = evaluate_expression(user_input)
+        speak(f"The logical result is: {result}")
+        continue
 
-    elif intent == "stackoverflow_help":
-        result = search_stackoverflow(user_input)
-        print(result)
-        speak(result)
+    # --- Web search trigger ---
+    if "search" in user_input.lower() or "look up" in user_input.lower():
+        search_result = search_web(user_input)
+        speak(search_result)
+        memory.remember(user_input, search_result)
+        continue
 
-    elif intent == "youtube_info":
-        result = get_youtube_metadata(user_input)
-        print(result)
-        speak(result)
+    # --- General LLM reasoning ---
+    context = memory.get_recent_conversations()
+    response = get_response(user_input, context)
+    speak(response)
+    memory.add_conversation(user_input, response)
 
-    elif intent == "reddit_search":
-        result = search_reddit(user_input)
-        print(result)
-        speak(result)
+    while True:
+     wait_for_wake_word()  # Wait for "Reya"
+     speak("I'm listening.")
+     print(" Listening for your command...")
+     time.sleep(1)  # Add a 1-second delayime
 
-    elif intent == "web_search":
-        result = search_web(user_input)
-        print(result)
-        speak(result)
+# Structured prompt with context
+context = memory.recall()
+structured_prompt = get_structured_reasoning_prompt(user_input, context)
+response = get_response(structured_prompt)
 
-    else:
-        result = get_response(user_input)
-        print(result)
-        speak(result)
+speak(response)
+memory.remember(user_input, response)
 
+# Optionally: Let REYA ask a question back
+follow_up = f"What would you like me to do next related to '{user_input}'?"
+speak(follow_up)
 
 
 while True:
-    user_input = listen()
+    user_input = listen_for_command()
     if user_input in ["exit", "quit","thanks","thank you"]:
         break
     response = get_response(user_input)
     speak(response)
 
-    while True:
+    # After generating a response:
+memory.remember(user_input, response)
+
+while True:
+    user_input = listen_for_command()
+    if not user_input:
+        continue
+
+    print(f"👤 You said: {user_input}")
+
+    if any(quit_word in user_input.lower() for quit_word in QUIT_WORDS):
+        speak("Goodbye.")
+        break
+
+    # 🔢 Logic evaluation if input contains logic keywords
+    elif "and" in user_input or "or" in user_input or "not" in user_input:
+        result = evaluate_logic(user_input)
+        speak(f"The logic result is: {result}")
+
+    # 🔍 StackOverflow if coding help
+    elif "code" in user_input or "stackoverflow" in user_input:
+        results = search_stackoverflow(user_input)
+        speak(f"Here's a StackOverflow result: {results}")
+
+    # 📺 YouTube metadata
+    elif "youtube" in user_input:
+        metadata = get_youtube_metadata(user_input)
+        if metadata:
+            speak(f"The title is: {metadata.get('title')}")
+        else:
+            speak("I couldn't fetch data from YouTube.")
+
+    # 👥 Reddit
+    elif "reddit" in user_input:
+        threads = search_reddit(user_input)
+        if threads:
+            speak(f"Here's a Reddit post: {threads[0]}")
+        else:
+            speak("No relevant Reddit threads found.")
+
+    # 🤖 Otherwise, default to LLM
+    else:
+        context = memory.recall()
+        prompt = get_structured_reasoning_prompt(user_input, context)
+        response = get_response(prompt)
+        speak(response)
+        memory.add(user_input, response)
+
+
+while True:
      user_input = listen()
      if not user_input:
         continue
@@ -109,17 +167,14 @@ while True:
         break
      else:
       response = "I'm not sure how to help with that yet."
-
-    speak(response)
+speak(response)
 
 while True:
     if not wait_for_wake_word():
         continue
     user_input = listen()
-    ...
 
-    follow_up = "Do you want me to explain how I got that?" if "why" in user_input.lower() else None
-    if follow_up:
-     speak(follow_up)
+    
+
 
 

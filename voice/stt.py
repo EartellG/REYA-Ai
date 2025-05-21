@@ -2,37 +2,38 @@ import speech_recognition as sr
 from fuzzywuzzy import fuzz
 
 recognizer = sr.Recognizer()
+mic = sr.Microphone()
 
-def match_phrase(heard, target, threshold=80):
-    return fuzz.partial_ratio(heard.lower(), target.lower()) >= threshold
+WAKE_WORD = "reya"
+QUIT_WORDS = ["quit", "exit", "stop", "goodbye"]
 
-def wait_for_wake_word(wake_word="reya"):
+def wait_for_wake_word():
     print("🎧 Listening for wake word...")
-    while True:
-        with sr.Microphone() as source:
-            audio = recognizer.listen(source)
-        try:
-            transcript = recognizer.recognize_google(audio)
-            print(f"You said: {transcript}")
-            if match_phrase(transcript, wake_word):
-                print("👂 Wake word detected!")
-                return True
-        except sr.UnknownValueError:
-            pass  # skip unrecognized speech
-        except sr.RequestError:
-            print("❌ Speech recognition service error.")
+    with mic as source:
+        recognizer.adjust_for_ambient_noise(source)
+        while True:
+            try:
+                audio = recognizer.listen(source)
+                text = recognizer.recognize_google(audio).lower()
+                print(f"[Wake Check] Heard: {text}")
+                if fuzz.ratio(WAKE_WORD, text) > 80:
+                    return
+            except sr.UnknownValueError:
+                continue
+            except sr.RequestError as e:
+                print(f"[ERROR] Speech Recognition error: {e}")
+                continue
 
 def listen_for_command():
-    print("🎤 Listening for your command...")
-    with sr.Microphone() as source:
+    print("🎤 Listening for command...")
+    with mic as source:
+        recognizer.adjust_for_ambient_noise(source)
         audio = recognizer.listen(source)
     try:
-        command = recognizer.recognize_google(audio)
-        print(f"📥 You said: {command}")
+        command = recognizer.recognize_google(audio).lower()
+        print(f"[Command] {command}")
         return command
     except sr.UnknownValueError:
-        print("😕 I didn't catch that.")
-        return ""
-    except sr.RequestError:
-        print("❌ Speech recognition service error.")
-        return ""
+        return "I didn't catch that."
+    except sr.RequestError as e:
+        return f"Speech Recognition error: {e}"

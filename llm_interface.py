@@ -1,19 +1,23 @@
 import subprocess
 
-# llm_interface.py
-def get_response(input_text):
-    # If using a local model like Ollama
-    import subprocess
-
+# Query Ollama LLM by model name
+def query_ollama(prompt: str, model: str = "llama3") -> str:
     result = subprocess.run(
-        ["ollama", "run", "llama3", input_text],
-        capture_output=True,
-        text=True
+        ["ollama", "run", model],
+        input=prompt,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        encoding="utf-8"
     )
-    return result.stdout
+    return result.stdout.strip()
 
+# Main function to get a response from the assistant
+def get_response(user_input, history):
+    prompt = get_structured_reasoning_prompt(user_input, history)
+    return query_ollama(prompt, model="llama3")  # You can change this model
 
-
+# Classify user intent using a lightweight model
 def classify_intent(prompt: str) -> str:
     system_prompt = """
 You are an intent classifier for a voice assistant.
@@ -25,27 +29,18 @@ Given a user's command, respond with one of the following intents:
 - "exit"
 Only return the intent label.
 """
-    input_text = f"{system_prompt}\nUser: {prompt}\nIntent:"
-    result = subprocess.run(
-    ["ollama", "run", "mistral"],
-    input=input_text,
-    text=True,
-    stdout=subprocess.PIPE,
-    stderr=subprocess.DEVNULL,  # Hide error messages
-    encoding="utf-8",           # Ensure clean Unicode handling
-)
-    return result.stdout.strip().lower()
+    full_prompt = f"{system_prompt}\nUser: {prompt}\nIntent:"
+    return query_ollama(full_prompt, model="mistral")  # Use a small model for speed
 
+# Build the structured reasoning prompt from memory
 def get_structured_reasoning_prompt(user_input, history):
-    prompt = get_structured_reasoning_prompt(user_input, memory.recall())
-    context = "\n".join([f"User: {q}\nReya: {a}" for q, a in history])
-    prompt = f"""
-You are REYA, a helpful assistant skilled in logic and analysis.
+    context = "\n".join([f"User: {item['input']}\nReya: {item['response']}" for item in history])
+    return f"""
+You are REYA, a helpful assistant skilled in logic, web, and code.
+
 {context}
 
 Now analyze and respond to the user's latest question.
+
 User: {user_input}
 Reya:"""
-    return prompt
-
-
