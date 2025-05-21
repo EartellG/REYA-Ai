@@ -14,15 +14,19 @@ def wait_for_wake_word():
         while True:
             try:
                 audio = recognizer.listen(source)
-                text = recognizer.recognize_google(audio).lower()
-                print(f"[Wake Check] Heard: {text}")
-                if fuzz.ratio(WAKE_WORD, text) > 80:
+                text = recognizer.recognize_google(audio).lower().strip()
+                score = fuzz.token_set_ratio(WAKE_WORD, text)
+
+                print(f"[Wake Check] Heard: {text} (match: {score}%)")
+
+                if score >= 90:  # Raise threshold for accuracy
                     return
             except sr.UnknownValueError:
                 continue
             except sr.RequestError as e:
                 print(f"[ERROR] Speech Recognition error: {e}")
                 continue
+
 
 def listen_for_command():
     print("🎤 Listening for command...")
