@@ -38,7 +38,6 @@ Only return the intent label.
 def get_structured_reasoning_prompt(user_input, history):
     # Normalize history format
     formatted_history = []
-    print("DEBUG - History looks like:", history)
     for item in history:
         if isinstance(item, dict):
             user = item.get("input") or item.get("user_input") or "unknown"

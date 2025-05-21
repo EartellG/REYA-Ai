@@ -35,6 +35,14 @@ class ContextualMemory:
         self.memory_file = memory_file
         self.memory = self._load_memory()
         self._ensure_memory_structure()
+
+        def recall(self) -> str:
+         """Return the last 5 interactions as a formatted string."""
+        history = self.get_recent_conversations()
+        return "\n".join(
+        [f"User: {conv['user_input']}\nREYA: {conv['assistant_response']}" for conv in history]
+    ) or "No prior context."
+
         
     def _ensure_memory_structure(self):
         """Ensure all required memory structures exist."""
