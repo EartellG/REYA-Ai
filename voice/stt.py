@@ -1,6 +1,8 @@
 import speech_recognition as sr
 from fuzzywuzzy import fuzz
 import pyttsx3
+from voice.edge_tts import speak_with_voice_style
+
 
 recognizer = sr.Recognizer()
 mic = sr.Microphone()
@@ -16,9 +18,6 @@ QUIT_WORDS = ["quit", "exit", "stop", "goodbye"]
 tts = pyttsx3.init()
 tts.setProperty('rate', 175)  # You can tweak this
 
-def speak(text):
-    tts.say(text)
-    tts.runAndWait()
 
 def match_wake_word(text):
     """Return True if text is close enough to a wake word."""
@@ -30,7 +29,7 @@ def match_wake_word(text):
     print(f"[Wake Check] Heard: {text} (No match)")
     return False
 
-def wait_for_wake_word(test_mode=False):
+def wait_for_wake_word(reya, test_mode=False):
     """Listen continuously for a valid wake word."""
     print("🎧 Listening for wake word...")
     with mic as source:
@@ -42,7 +41,7 @@ def wait_for_wake_word(test_mode=False):
                 if test_mode:
                     print(f"[Test Mode] Heard: {text}")
                 if match_wake_word(text):
-                    speak("I'm listening.")
+                    speak_with_voice_style("How may I assist you?", reya)
                     return
             except sr.UnknownValueError:
                 continue
@@ -50,7 +49,7 @@ def wait_for_wake_word(test_mode=False):
                 print(f"[ERROR] Speech Recognition error: {e}")
                 continue
 
-def listen_for_command(timeout=10, phrase_time_limit=15, retries=1):
+def listen_for_command(reya,timeout=10, phrase_time_limit=15, retries=1):
     print("🎤 Listening for command...")
     with mic as source:
         recognizer.adjust_for_ambient_noise(source)
@@ -66,15 +65,15 @@ def listen_for_command(timeout=10, phrase_time_limit=15, retries=1):
 
         # Retry if too short or unclear
         if len(command.split()) < 3 and retries > 0:
-            speak("That was a bit short. Can you repeat it more clearly?")
-            return listen_for_command(timeout, phrase_time_limit, retries=retries - 1)
+            speak_with_voice_style("That was a bit short. Can you repeat it more clearly?", reya)
+            return listen_for_command (reya, timeout, phrase_time_limit, retries=retries - 1)
 
         return command
 
     except sr.UnknownValueError:
         if retries > 0:
-            speak("I didn't catch that. Could you say it again?")
-            return listen_for_command(timeout, phrase_time_limit, retries=retries - 1)
+            speak_with_voice_style("I didn't catch that. Could you say it again?", reya)
+            return listen_for_command(reya, timeout, phrase_time_limit, retries=retries - 1)
         return "I didn't catch that."
 
     except sr.RequestError as e:

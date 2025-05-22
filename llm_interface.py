@@ -80,7 +80,8 @@ from reya_personality import ReyaPersonality
 
 # Accept the ReyaPersonality instance in prompt generation
 def get_structured_reasoning_prompt(user_input, context, reya=None):
-    context_str = "\n".join(context or [])
+    context_str = "\n".join(str(item) for item in (context or []))
+
 
     # Extract personality info
     if reya:
@@ -110,3 +111,6 @@ Respond as REYA:
 """
     return prompt
 
+def get_response(user_input, history):
+    prompt = get_structured_reasoning_prompt(user_input, history, reya=reya_personality)
+    return query_ollama(prompt, model="llama3")

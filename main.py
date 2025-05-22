@@ -1,6 +1,6 @@
 from voice.edge_tts import speak_with_voice_style
 from reya_personality import ReyaPersonality, TRAITS, MANNERISMS, STYLES
-from llm_interface import get_response, get_structured_reasoning_prompt, classify_intent, query_ollama
+from llm_interface import get_response, get_structured_reasoning_prompt, query_ollama
 from features import notes, reminders, web_search
 from voice.stt import wait_for_wake_word, listen_for_command
 from intent import recognize_intent
@@ -34,18 +34,18 @@ memory = ContextualMemory()
 proactive = ProactiveAssistance(memory)
 automation = TaskAutomation()
 emotions = EmotionalIntelligence()
-
+history = []
 
 print("🔁 REYA is running...")
 
 while True:
-    wait_for_wake_word()
-    user_input = listen_for_command()
+    wait_for_wake_word(reya)
+    user_input = listen_for_command(reya)
     print(f"👤 You said: {user_input}")
 
     emotional_response = emotions.analyze_and_respond(user_input)
-    
-    
+    intent = recognize_intent(user_input)
+    response = get_response(user_input, history) 
     if not user_input:
         continue
 
@@ -109,9 +109,9 @@ while True:
     if response.strip().endswith("?"):
         speak_with_voice_style(f"What would you like me to do next related to '{user_input}'?", reya)
         print("🕒 Listening for follow-up...")
-        follow_up = listen_for_command()
+        follow_up = listen_for_command(reya)
         print(f"🔁 Follow-up: {follow_up}")
-
+        
         if follow_up:
             emotional_response = emotions.analyze_and_respond(follow_up)
             if emotional_response:

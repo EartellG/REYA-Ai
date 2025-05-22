@@ -2,7 +2,7 @@ import pyttsx3
 
 engine = pyttsx3.init()
 
-def speak(text):
+def speak_with_voice_style(text, reya):
     if not text.strip():
         print("[TTS] Skipped speaking empty text.")
         return
