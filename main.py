@@ -1,4 +1,4 @@
-from voice.edge_tts import speak
+from voice.edge_tts import speak_with_voice_style
 from reya_personality import ReyaPersonality, TRAITS, MANNERISMS, STYLES
 from llm_interface import get_response, get_structured_reasoning_prompt, classify_intent, query_ollama
 from features import notes, reminders, web_search
@@ -16,13 +16,19 @@ from features.youtube_search import get_youtube_metadata
 from features.reddit_search import search_reddit
 from features.web_search import search_web
 
+
 reya = ReyaPersonality(
     traits=[TRAITS["stoic"], TRAITS["playful"]],
     mannerisms=[MANNERISMS["sassy"], MANNERISMS["meta_awareness"]],
-    style=STYLES["oracle"]
+    style=STYLES["oracle"],
+    voice="en-US-JennyNeural",  # pick any Edge TTS voice you like
+    preset={
+        "rate": "-10%",    # slower speech
+        "pitch": "-5Hz",   # deeper pitch
+        "volume": "+0%"    # normal volume
+    }
 )
 
-print(reya.describe())
 
 memory = ContextualMemory()
 proactive = ProactiveAssistance(memory)
@@ -38,95 +44,82 @@ while True:
     print(f"👤 You said: {user_input}")
 
     emotional_response = emotions.analyze_and_respond(user_input)
-
+    
+    
     if not user_input:
         continue
 
-    # Goodbye logic
     if user_input.strip().lower() in ["quit", "exit", "bye"]:
-        speak("Goodbye!")
+        speak_with_voice_style("Goodbye!", reya)
         break
 
-    # Emotion detection
-    emotional_response = emotions.analyze_and_respond(user_input)
     if emotional_response:
-        speak(emotional_response)
+        speak_with_voice_style(emotional_response, reya)
         continue
 
-    # Proactive tip
     tip = proactive.suggest(user_input)
     if tip:
-        speak(tip)
+        speak_with_voice_style(tip, reya)
 
-    # Task automation
     automated = automation.handle(user_input)
     if automated:
-        speak(automated)
+        speak_with_voice_style(automated, reya)
         memory.remember(user_input, automated)
         continue
 
-    # Logic evaluation
     if any(k in user_input.lower() for k in ["and", "or", "not", "true", "false"]):
         result = evaluate_logic(user_input)
-        speak(f"The logic result is: {result}")
+        speak_with_voice_style(f"The logic result is: {result}", reya)
         continue
 
-    # StackOverflow
     if "stackoverflow" in user_input.lower() or "code" in user_input.lower():
         result = search_stackoverflow(user_input)
-        speak(result)
+        speak_with_voice_style(result, reya)
         memory.remember(user_input, result)
         continue
 
-    # YouTube
     if "youtube" in user_input.lower():
         metadata = get_youtube_metadata(user_input)
         if metadata:
-            speak(f"The title is: {metadata.get('title')}")
+            speak_with_voice_style(f"The title is: {metadata.get('title')}", reya)
         else:
-            speak("I couldn't fetch YouTube data.")
+            speak_with_voice_style("I couldn't fetch YouTube data.", reya)
         continue
 
-    # Reddit
     if "reddit" in user_input.lower():
         threads = search_reddit(user_input)
         if threads:
-            speak(f"Here's a Reddit post: {threads[0]}")
+            speak_with_voice_style(f"Here's a Reddit post: {threads[0]}", reya)
         else:
-            speak("No relevant Reddit threads found.")
+            speak_with_voice_style("No relevant Reddit threads found.", reya)
         continue
 
-    # Web Search
     if any(term in user_input.lower() for term in ["search", "look up"]):
         result = search_web(user_input)
-        speak(result)
+        speak_with_voice_style(result, reya)
         memory.remember(user_input, result)
         continue
 
-    
-        # General LLM reasoning
     context = memory.get_recent_conversations()
-    structured_prompt = get_structured_reasoning_prompt(user_input, context, reya=reya)
+    structured_prompt = get_structured_reasoning_prompt(user_input, context)
     response = query_ollama(structured_prompt, model="llama3")
-    speak(response)
+    speak_with_voice_style(response, reya)
     memory.remember(user_input, response)
 
-    # Optional follow-up
     if response.strip().endswith("?"):
-        speak(f"What would you like me to do next related to '{user_input}'?")
+        speak_with_voice_style(f"What would you like me to do next related to '{user_input}'?", reya)
         print("🕒 Listening for follow-up...")
         follow_up = listen_for_command()
         print(f"🔁 Follow-up: {follow_up}")
-        
+
         if follow_up:
             emotional_response = emotions.analyze_and_respond(follow_up)
             if emotional_response:
-                speak(emotional_response)
+                speak_with_voice_style(emotional_response, reya)
                 continue
 
-            # You could repeat proactive/automation/logic/etc checks here too if desired
             followup_context = memory.get_recent_conversations()
-            followup_prompt = get_structured_reasoning_prompt(follow_up, followup_context, reya=reya)
+            followup_prompt = get_structured_reasoning_prompt(follow_up, followup_context)
             followup_response = query_ollama(followup_prompt, model="llama3")
-            speak(followup_response)
+            speak_with_voice_style(followup_response, reya)
             memory.remember(follow_up, followup_response)

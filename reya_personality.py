@@ -1,14 +1,18 @@
 class ReyaPersonality:
-    def __init__(self, traits=None, mannerisms=None, style=None):
+     def __init__(self, traits=None, mannerisms=None, style="default", voice="en-US-JennyNeural", preset=None):
         self.traits = traits or []
         self.mannerisms = mannerisms or []
-        self.style = style or "default"
+        self.style = style
+        self.voice = voice
+        self.preset = preset or {}
 
-    def describe(self):
+     def describe(self):
         return {
             "traits": self.traits,
             "mannerisms": self.mannerisms,
-            "style": self.style
+            "style": self.style,
+            "voice": self.voice,
+            "preset": self.preset
         }
 
 # ────────────────────────────────────────────────────────────────
