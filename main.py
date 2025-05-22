@@ -1,4 +1,5 @@
-from voice.tts import speak
+from voice.edge_tts import speak
+from reya_personality import ReyaPersonality, TRAITS, MANNERISMS, STYLES
 from llm_interface import get_response, get_structured_reasoning_prompt, classify_intent, query_ollama
 from features import notes, reminders, web_search
 from voice.stt import wait_for_wake_word, listen_for_command
@@ -14,6 +15,14 @@ from features.stackoverflow_search import search_stackoverflow
 from features.youtube_search import get_youtube_metadata
 from features.reddit_search import search_reddit
 from features.web_search import search_web
+
+reya = ReyaPersonality(
+    traits=[TRAITS["stoic"], TRAITS["playful"]],
+    mannerisms=[MANNERISMS["sassy"], MANNERISMS["meta_awareness"]],
+    style=STYLES["oracle"]
+)
+
+print(reya.describe())
 
 memory = ContextualMemory()
 proactive = ProactiveAssistance(memory)
@@ -94,10 +103,10 @@ while True:
         memory.remember(user_input, result)
         continue
 
-    # General LLM reasoning
+    
         # General LLM reasoning
     context = memory.get_recent_conversations()
-    structured_prompt = get_structured_reasoning_prompt(user_input, context)
+    structured_prompt = get_structured_reasoning_prompt(user_input, context, reya=reya)
     response = query_ollama(structured_prompt, model="llama3")
     speak(response)
     memory.remember(user_input, response)
@@ -117,7 +126,7 @@ while True:
 
             # You could repeat proactive/automation/logic/etc checks here too if desired
             followup_context = memory.get_recent_conversations()
-            followup_prompt = get_structured_reasoning_prompt(follow_up, followup_context)
+            followup_prompt = get_structured_reasoning_prompt(follow_up, followup_context, reya=reya)
             followup_response = query_ollama(followup_prompt, model="llama3")
             speak(followup_response)
             memory.remember(follow_up, followup_response)

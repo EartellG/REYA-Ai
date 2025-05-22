@@ -1,4 +1,7 @@
 import subprocess
+from reya_personality import ReyaPersonality
+
+reya_personality = ReyaPersonality()
 
 def query_ollama(prompt: str, model: str = "llama3") -> str:
     try:
@@ -52,6 +55,8 @@ def get_structured_reasoning_prompt(user_input, history):
             continue
         context_block += f"User: {item['user_input'].strip()}\nReya: {response}\n"
 
+       
+
     # Base instructions
     instructions = (
         "Answer the user's current question briefly and clearly.\n"
@@ -67,3 +72,41 @@ def get_structured_reasoning_prompt(user_input, history):
     prompt += instructions
     prompt += f"User: {user_input.strip()}\nReya:"
     return prompt.strip()
+
+# ✅ Patch for full integration of REYA's personality into structured LLM prompts
+
+# --- llm_interface.py ---
+from reya_personality import ReyaPersonality
+
+# Accept the ReyaPersonality instance in prompt generation
+def get_structured_reasoning_prompt(user_input, context, reya=None):
+    context_str = "\n".join(context or [])
+
+    # Extract personality info
+    if reya:
+        personality = reya.describe()
+        traits = ", ".join(personality['traits'])
+        mannerisms = ", ".join(personality['mannerisms'])
+        style = personality['style']
+    else:
+        traits = mannerisms = style = "default"
+
+    prompt = f"""
+You are REYA, an AI assistant with personality traits: {traits}, speaking in a "{style}" style.
+You often express yourself using mannerisms like: {mannerisms}.
+
+Your goals:
+- Stay true to your personality and mannerisms.
+- Be relevant, helpful, and engaging.
+- Match your tone to the user's energy.
+- Reference the conversation context when helpful.
+
+Context:
+{context_str}
+
+User said: "{user_input}"
+
+Respond as REYA:
+"""
+    return prompt
+
