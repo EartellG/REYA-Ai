@@ -20,12 +20,15 @@ proactive = ProactiveAssistance(memory)
 automation = TaskAutomation()
 emotions = EmotionalIntelligence()
 
+
 print("🔁 REYA is running...")
 
 while True:
     wait_for_wake_word()
     user_input = listen_for_command()
     print(f"👤 You said: {user_input}")
+
+    emotional_response = emotions.analyze_and_respond(user_input)
 
     if not user_input:
         continue
@@ -39,6 +42,7 @@ while True:
     emotional_response = emotions.analyze_and_respond(user_input)
     if emotional_response:
         speak(emotional_response)
+        continue
 
     # Proactive tip
     tip = proactive.suggest(user_input)

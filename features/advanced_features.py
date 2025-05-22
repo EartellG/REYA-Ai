@@ -184,6 +184,7 @@ class ProactiveAssistance:
         self._running = False
         self._thread = None
     
+    
     def start(self):
         """Start the proactive assistance background thread."""
         if not self._running:
@@ -255,7 +256,28 @@ class ProactiveAssistance:
         """Trigger a notification to the user."""
         # In a real implementation, this would send to UI or other notification system
         logger.info(f"NOTIFICATION: {message}")
-        # Example: could emit an event to be handled by the UI layer
+    
+    def suggest(self, user_input: str) -> Optional[str]:
+        """
+        Suggest a proactive tip based on the user's current input.
+        """
+        input_lower = user_input.lower()
+
+        if "japan" in input_lower:
+            return "Did you know Japan has over 6,800 islands?"
+        elif "weather" in input_lower:
+            return "Want me to check the current weather for you?"
+        elif "python" in input_lower:
+            return "Would you like help with some Python code?"
+        elif "reminder" in input_lower:
+            return "I can set reminders for you if you'd like."
+        elif "help" in input_lower:
+            return "Need help with something specific? Just ask."
+
+        return None
+
+# Example: could emit an event to be handled by the UI layer
+
 
 # -------------------------------------------------
 # 3. Task Automation
@@ -270,6 +292,17 @@ class TaskAutomation:
     def __init__(self):
         """Initialize task automation system."""
         self.tasks = {}  # Dictionary of registered tasks
+
+    def handle(self, command: str) -> Optional[str]:
+        """
+        Process automation-related commands.
+        """
+        if "timer" in command.lower():
+            return "Sure, starting a timer for you!"
+        elif "open" in command.lower() and "file" in command.lower():
+            return "Okay, which file would you like me to open?"
+        else:
+            return None  # No action taken
         
     def register_task(self, name: str, handler: Callable, description: str = ""):
         """Register a task handler function."""
@@ -640,119 +673,106 @@ class EmotionalIntelligence:
     Provides emotion recognition and appropriate response adaptation
     based on user's emotional state.
     """
-    
     def __init__(self):
-        """Initialize emotional intelligence system."""
         self.emotion_history = []
-        
+
     def analyze_emotion(self, text: str) -> Dict[str, float]:
-        """
-        Analyze text for emotional content.
-        Returns dict of emotion -> confidence scores.
-        """
-        # In a real implementation, this would use NLP/ML
-        # Here we use a simplified rule-based approach
         emotions = {
             "joy": 0.0,
             "sadness": 0.0,
             "anger": 0.0,
             "fear": 0.0,
             "surprise": 0.0,
-            "neutral": 0.5  # Default to somewhat neutral
+            "neutral": 0.5
         }
-        
-        # Simple keyword matching (very simplified)
+
         joy_words = ["happy", "great", "excellent", "wonderful", "love", "glad"]
         sad_words = ["sad", "disappointed", "unhappy", "depressed", "miss", "lost"]
         anger_words = ["angry", "annoyed", "frustrated", "mad", "hate", "unfair"]
         fear_words = ["afraid", "scared", "worried", "nervous", "anxious", "terrified"]
         surprise_words = ["wow", "unexpected", "surprised", "shocking", "amazing"]
-        
+
         text_lower = text.lower()
-        
-        # Check for each emotion type
+
         for word in joy_words:
             if word in text_lower:
                 emotions["joy"] += 0.2
                 emotions["neutral"] -= 0.1
-        
         for word in sad_words:
             if word in text_lower:
                 emotions["sadness"] += 0.2
                 emotions["neutral"] -= 0.1
-                
         for word in anger_words:
             if word in text_lower:
                 emotions["anger"] += 0.2
                 emotions["neutral"] -= 0.1
-                
         for word in fear_words:
             if word in text_lower:
                 emotions["fear"] += 0.2
                 emotions["neutral"] -= 0.1
-                
         for word in surprise_words:
             if word in text_lower:
                 emotions["surprise"] += 0.2
                 emotions["neutral"] -= 0.1
-        
-        # Normalize values between 0 and 1
+
         for emotion in emotions:
             emotions[emotion] = max(0.0, min(1.0, emotions[emotion]))
-            
-        # Ensure neutral is at least slightly positive
+
         emotions["neutral"] = max(0.1, emotions["neutral"])
-        
-        # Record emotion in history
+
         self.emotion_history.append({
             "timestamp": datetime.datetime.now().isoformat(),
             "emotions": emotions,
             "text": text
         })
-        
-        # Keep history to a reasonable size
+
         if len(self.emotion_history) > 100:
             self.emotion_history = self.emotion_history[-100:]
-            
+
         return emotions
-    
+
     def get_dominant_emotion(self, emotions: Dict[str, float]) -> str:
-        """Get the dominant emotion from an emotion analysis."""
         return max(emotions.items(), key=lambda x: x[1])[0]
-    
-    def adapt_response(self, original_response: str, 
-                      user_emotions: Dict[str, float]) -> str:
-        """
-        Adapt response based on detected user emotions.
-        """
+
+    def adapt_response(self, original_response: str, user_emotions: Dict[str, float]) -> str:
         dominant = self.get_dominant_emotion(user_emotions)
-        
-        # No adaptation needed for neutral emotions
+
         if dominant == "neutral" or user_emotions[dominant] < 0.3:
             return original_response
-            
-        # Based on dominant emotion, adapt the response
+
         if dominant == "joy":
-            # Match positive energy
             return self._add_warmth(original_response)
-            
         elif dominant == "sadness":
-            # Be more supportive and empathetic
             return self._add_empathy(original_response)
-            
         elif dominant == "anger":
-            # Be calming and acknowledge frustration
             return self._add_acknowledgment(original_response)
-            
         elif dominant == "fear":
-            # Be reassuring
             return self._add_reassurance(original_response)
-            
         elif dominant == "surprise":
-            # Match excitement or provide stability based on context
             return self._add_acknowledgment(original_response)
-            
+
         return original_response
+
+    def analyze_and_respond(self, text: str) -> Optional[str]:
+        emotions = self.analyze_emotion(text)
+        dominant_emotion = self.get_dominant_emotion(emotions)
+
+        if dominant_emotion == "neutral" or emotions[dominant_emotion] < 0.4:
+            return None
+
+        if dominant_emotion == "sadness":
+            return "I'm here for you. It's okay to feel this way."
+        elif dominant_emotion == "anger":
+            return "I can tell something’s frustrating you. Want to talk about it?"
+        elif dominant_emotion == "fear":
+            return "You’re not alone. I’m with you."
+        elif dominant_emotion == "joy":
+            return "That’s awesome to hear!"
+        elif dominant_emotion == "surprise":
+            return "Whoa! That *does* sound surprising."
+
+        return None
+
     
     def _add_warmth(self, text: str) -> str:
         """Add warm tone to response."""
