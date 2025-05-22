@@ -95,6 +95,7 @@ while True:
         continue
 
     # General LLM reasoning
+        # General LLM reasoning
     context = memory.get_recent_conversations()
     structured_prompt = get_structured_reasoning_prompt(user_input, context)
     response = query_ollama(structured_prompt, model="llama3")
@@ -102,4 +103,21 @@ while True:
     memory.remember(user_input, response)
 
     # Optional follow-up
-    speak(f"What would you like me to do next related to '{user_input}'?")
+    if response.strip().endswith("?"):
+        speak(f"What would you like me to do next related to '{user_input}'?")
+        print("🕒 Listening for follow-up...")
+        follow_up = listen_for_command()
+        print(f"🔁 Follow-up: {follow_up}")
+        
+        if follow_up:
+            emotional_response = emotions.analyze_and_respond(follow_up)
+            if emotional_response:
+                speak(emotional_response)
+                continue
+
+            # You could repeat proactive/automation/logic/etc checks here too if desired
+            followup_context = memory.get_recent_conversations()
+            followup_prompt = get_structured_reasoning_prompt(follow_up, followup_context)
+            followup_response = query_ollama(followup_prompt, model="llama3")
+            speak(followup_response)
+            memory.remember(follow_up, followup_response)
