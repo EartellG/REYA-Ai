@@ -39,6 +39,7 @@ def get_structured_reasoning_prompt(user_input, history):
     """
     Build a prompt focused on answering the current question,
     using prior context only if it's clearly relevant.
+    Includes guidance to give a short answer first and offer details if needed.
     """
     # Grab last 2 interactions if available
     recent_items = history[-2:] if isinstance(history, list) else []
@@ -46,18 +47,23 @@ def get_structured_reasoning_prompt(user_input, history):
     context_block = ""
     for item in recent_items:
         response = item["assistant_response"].strip()
-
         # Filter out garbage responses that still contain "You are REYA"
         if "You are REYA" in response:
             continue
-
         context_block += f"User: {item['user_input'].strip()}\nReya: {response}\n"
 
-    prompt = ""
+    # Base instructions
+    instructions = (
+        "Answer the user's current question briefly and clearly.\n"
+        "If the answer is complex, give a short summary first and ask if they want a detailed explanation.\n"
+        "Only use previous context if it directly helps answer the question.\n\n"
+    )
 
+    # Build final prompt
+    prompt = ""
     if context_block:
         prompt += f"Relevant past context:\n{context_block.strip()}\n\n"
 
+    prompt += instructions
     prompt += f"User: {user_input.strip()}\nReya:"
     return prompt.strip()
-

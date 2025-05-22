@@ -1,29 +1,19 @@
 from voice.tts import speak
-from llm_interface import get_response, get_structured_reasoning_prompt
-from llm_interface import classify_intent
-from llm_interface import query_ollama
+from llm_interface import get_response, get_structured_reasoning_prompt, classify_intent, query_ollama
 from features import notes, reminders, web_search
 from voice.stt import wait_for_wake_word, listen_for_command
 from intent import recognize_intent
-from features.advanced_features import ContextualMemory
+from features.advanced_features import (
+    ContextualMemory, ProactiveAssistance, TaskAutomation, EmotionalIntelligence,
+    PersonalizedKnowledgeBase, SmartDeviceIntegration, PrivacyControls,
+    VoiceInterface, MultiModalProcessor
+)
 from features.logic_engine import evaluate_logic
 from features.stackoverflow_search import search_stackoverflow
 from features.youtube_search import get_youtube_metadata
 from features.reddit_search import search_reddit
-from features.web_search import search_web
-from voice.stt import listen_for_command
-from features.advanced_features import (
-      ContextualMemory, 
-      ProactiveAssistance,
-      TaskAutomation,
-      EmotionalIntelligence,
-      PersonalizedKnowledgeBase,
-      SmartDeviceIntegration,
-      PrivacyControls,
-      VoiceInterface,
-      MultiModalProcessor,
-)
 
+# Initialize systems
 memory = ContextualMemory()
 proactive = ProactiveAssistance(memory)
 automation = TaskAutomation()
@@ -33,148 +23,73 @@ devices = SmartDeviceIntegration()
 privacy = PrivacyControls()
 voice = VoiceInterface()
 multimodal = MultiModalProcessor()
-intent = recognize_intent("some_command")
 
-
-
-import time
-
-print("🔁 REYA is running...")
+print("\U0001F501 REYA is running...")
 
 while True:
-    wait_for_wake_word()  # 👂 Listen for "Reya"
-    # speak("I'm listening.")  # Optional response to confirm wake
-
-    user_input = listen_for_command()
-    print(f"👤 You said: {user_input}")
-
-    # --- Handle exit ---
-    if user_input.lower() in ["quit", "exit", "stop", "goodbye"]:
-        speak("Goodbye.")
-        break
-
-    # --- Logic engine trigger ---
-    if any(keyword in user_input.lower() for keyword in ["and", "or", "not", "true", "false"]):
-        result = evaluate_expression(user_input)
-        speak(f"The logical result is: {result}")
-        continue
-
-    # --- Web search trigger ---
-    if "search" in user_input.lower() or "look up" in user_input.lower():
-        search_result = search_web(user_input)
-        speak(search_result)
-        memory.remember(user_input, search_result)
-        continue
-
-    # --- General LLM reasoning ---
-    context = memory.get_recent_conversations()
-    response = get_response(user_input, context)
-    speak(response)
-    memory.add_conversation(user_input, response)
-
-# Structured prompt with context
-context_data = memory.recall()
-history = context_data.get("conversations", [])
-structured_prompt = get_structured_reasoning_prompt(user_input, history)
-response = query_ollama(structured_prompt, model="llama3")
-speak(response)
-
-memory.remember(user_input, response)
-{
-    "user_input": user_input,
-    "assistant_response": response
-}
-
-# Optionally: Let REYA ask a question back
-follow_up = f"What would you like me to do next related to '{user_input}'?"
-speak(follow_up)
-
-
-while True:
-    user_input = listen_for_command()
-    if user_input in ["exit", "quit","thanks","thank you"]:
-        break
-    response = get_response(user_input)
-    speak(response)
-
-    # After generating a response:
-memory.remember(user_input, response)
-
-while True:
+    wait_for_wake_word()
     user_input = listen_for_command()
     if not user_input:
         continue
 
-    print(f"👤 You said: {user_input}")
+    print(f"\U0001F464 You said: {user_input}")
 
-    if any(quit_word in user_input.lower() for quit_word in QUIT_WORDS):
+    if user_input.lower().strip() in ["quit", "exit", "bye"]:
         speak("Goodbye.")
         break
 
-    # 🔢 Logic evaluation if input contains logic keywords
-    elif "and" in user_input or "or" in user_input or "not" in user_input:
+    # Logic engine
+    if any(op in user_input.lower() for op in ["and", "or", "not", "true", "false"]):
         result = evaluate_logic(user_input)
         speak(f"The logic result is: {result}")
+        continue
 
-    # 🔍 StackOverflow if coding help
-    elif "code" in user_input or "stackoverflow" in user_input:
-        results = search_stackoverflow(user_input)
-        speak(f"Here's a StackOverflow result: {results}")
+    # StackOverflow
+    if "code" in user_input or "stackoverflow" in user_input:
+        result = search_stackoverflow(user_input)
+        speak(f"Here's a StackOverflow result: {result}")
+        memory.remember(user_input, result)
+        continue
 
-    # 📺 YouTube metadata
-    elif "youtube" in user_input:
+    # YouTube
+    if "youtube" in user_input:
         metadata = get_youtube_metadata(user_input)
         if metadata:
             speak(f"The title is: {metadata.get('title')}")
         else:
             speak("I couldn't fetch data from YouTube.")
+        continue
 
-    # 👥 Reddit
-    elif "reddit" in user_input:
+    # Reddit
+    if "reddit" in user_input:
         threads = search_reddit(user_input)
         if threads:
             speak(f"Here's a Reddit post: {threads[0]}")
         else:
             speak("No relevant Reddit threads found.")
+        continue
 
-    # 🤖 Otherwise, default to LLM
+    # Search intent
+    if "search" in user_input.lower() or "look up" in user_input.lower():
+        result = search_web(user_input)
+        speak(result)
+        memory.remember(user_input, result)
+        continue
+
+    # General conversation
+    context = memory.recall().get("conversations", [])
+    structured_prompt = get_structured_reasoning_prompt(user_input, context)
+    response = query_ollama(structured_prompt, model="llama3")
+
+    # Handle long responses
+    if len(response.split()) > 50:
+        short_response = response.split(". ")[0] + "."
+        speak(short_response)
+        speak("Would you like more details?")
+        follow_up = listen_for_command()
+        if follow_up.lower() in ["yes", "sure", "go ahead"]:
+            speak(response)
     else:
-        context = memory.recall()
-        prompt = get_structured_reasoning_prompt(user_input, context)
-        response = get_response(prompt, history)
         speak(response)
-        memory.add(user_input, response)
 
-
-while True:
-     user_input = listen()
-     if not user_input:
-        continue
-
-     intent = classify_intent(user_input)
-
-     if intent == "note":
-        response = notes.handle(user_input)
-     elif intent == "reminder":
-        response = reminders.handle(user_input)
-     elif intent == "web_search":
-        response = web_search.search(user_input)
-     elif intent == "greeting":
-        response = "Hello! How can I help you today?"
-     elif intent == "exit":
-        response = "Goodbye!"
-        speak(response)
-        break
-     else:
-      response = "I'm not sure how to help with that yet."
-speak(response)
-
-while True:
-    if not wait_for_wake_word():
-        continue
-    user_input = listen()
-
-    
-
-
-
+    memory.remember(user_input, response)
