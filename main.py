@@ -4,6 +4,7 @@ from llm_interface import get_response, get_structured_reasoning_prompt, query_o
 from features import notes, reminders, web_search
 from voice.stt import wait_for_wake_word, listen_for_command
 from intent import recognize_intent
+from utils.translate import translate_to_english
 from features.advanced_features import (
     ContextualMemory,
     ProactiveAssistance,
@@ -41,15 +42,20 @@ print("🔁 REYA is running...")
 while True:
     wait_for_wake_word(reya)
     user_input = listen_for_command(reya)
-    print(f"👤 You said: {user_input}")
+    print(f"👤 Original input: {user_input}")
 
-    emotional_response = emotions.analyze_and_respond(user_input)
-    intent = recognize_intent(user_input)
-    response = get_response(user_input, history) 
-    if not user_input:
+# 🌐 Translate to English
+    translated_input = translate_to_english(translated_input)
+    print(f"🌍 Translated to English: {translated_input}")
+
+
+    emotional_response = emotions.analyze_and_respond(translated_input)
+    intent = recognize_intent(translated_input)
+    response = get_response(translated_input, history) 
+    if not translated_input:
         continue
 
-    if user_input.strip().lower() in ["quit", "exit", "bye"]:
+    if translated_input.strip().lower() in ["quit", "exit", "bye"]:
         speak_with_voice_style("Goodbye!", reya)
         break
 
@@ -57,57 +63,57 @@ while True:
         speak_with_voice_style(emotional_response, reya)
         continue
 
-    tip = proactive.suggest(user_input)
+    tip = proactive.suggest(translated_input)
     if tip:
         speak_with_voice_style(tip, reya)
 
-    automated = automation.handle(user_input)
+    automated = automation.handle(translated_input)
     if automated:
         speak_with_voice_style(automated, reya)
-        memory.remember(user_input, automated)
+        memory.remember(translated_input, automated)
         continue
 
-    if any(k in user_input.lower() for k in ["and", "or", "not", "true", "false"]):
-        result = evaluate_logic(user_input)
+    if any(k in translated_input.lower() for k in ["and", "or", "not", "true", "false"]):
+        result = evaluate_logic(translated_input)
         speak_with_voice_style(f"The logic result is: {result}", reya)
         continue
 
-    if "stackoverflow" in user_input.lower() or "code" in user_input.lower():
-        result = search_stackoverflow(user_input)
+    if "stackoverflow" in translated_input.lower() or "code" in translated_input.lower():
+        result = search_stackoverflow(translated_input)
         speak_with_voice_style(result, reya)
-        memory.remember(user_input, result)
+        memory.remember(translated_input, result)
         continue
 
-    if "youtube" in user_input.lower():
-        metadata = get_youtube_metadata(user_input)
+    if "youtube" in translated_input.lower():
+        metadata = get_youtube_metadata(translated_input)
         if metadata:
             speak_with_voice_style(f"The title is: {metadata.get('title')}", reya)
         else:
             speak_with_voice_style("I couldn't fetch YouTube data.", reya)
         continue
 
-    if "reddit" in user_input.lower():
-        threads = search_reddit(user_input)
+    if "reddit" in translated_input.lower():
+        threads = search_reddit(translated_input)
         if threads:
             speak_with_voice_style(f"Here's a Reddit post: {threads[0]}", reya)
         else:
             speak_with_voice_style("No relevant Reddit threads found.", reya)
         continue
 
-    if any(term in user_input.lower() for term in ["search", "look up"]):
-        result = search_web(user_input)
+    if any(term in translated_input.lower() for term in ["search", "look up"]):
+        result = search_web(translated_input)
         speak_with_voice_style(result, reya)
-        memory.remember(user_input, result)
+        memory.remember(translated_input, result)
         continue
 
     context = memory.get_recent_conversations()
-    structured_prompt = get_structured_reasoning_prompt(user_input, context)
+    structured_prompt = get_structured_reasoning_prompt(translated_input, context)
     response = query_ollama(structured_prompt, model="llama3")
     speak_with_voice_style(response, reya)
     memory.remember(user_input, response)
 
     if response.strip().endswith("?"):
-        speak_with_voice_style(f"What would you like me to do next related to '{user_input}'?", reya)
+        speak_with_voice_style(f"What would you like me to do next related to '{translated_input}'?", reya)
         print("🕒 Listening for follow-up...")
         follow_up = listen_for_command(reya)
         print(f"🔁 Follow-up: {follow_up}")
