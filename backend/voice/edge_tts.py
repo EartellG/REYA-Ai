@@ -16,18 +16,20 @@ def get_voice_and_preset(reya):
         "cyberpunk": "en-US-DavisNeural",
         "zen": "en-US-AriaNeural",
         "detective": "en-US-ChristopherNeural",
+        "cyberpunk": "en-NZ-MollyNeural",
     }
 
     style = getattr(reya, "style", "default")
-    voice = style_to_voice.get(style, "en-US-JennyNeural")
+    voice = style_to_voice.get(style, "en-GB-MiaNeural")
 
     # Optional: voice customization preset
     preset = {
-        "oracle": {"rate": "-5%", "pitch": "-2Hz"},
+        "oracle": {"rate": "+20%", "pitch": "+45Hz"},
         "griot": {"rate": "+0%", "pitch": "-1Hz"},
         "cyberpunk": {"rate": "+10%", "pitch": "+4Hz"},
         "zen": {"rate": "-10%", "pitch": "-4Hz"},
         "detective": {"rate": "-5%", "pitch": "-2Hz"},
+        "companion": {"rate": "+0%", "pitch": "+15Hz"},
     }.get(style, {"rate": "+0%", "pitch": "+0Hz"})
 
     return voice, preset

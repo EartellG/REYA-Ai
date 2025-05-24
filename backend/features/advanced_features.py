@@ -25,18 +25,12 @@ logger = logging.getLogger("REYA-AI")
 # -------------------------------------------------
 
 class ContextualMemory:
-    """
-    Maintains persistent memory of user interactions and preferences
-    to provide personalized responses over time.
-    """
-    
     def __init__(self, memory_file: str = "memory/user_context.json"):
-        """Initialize the contextual memory system."""
         self.memory_file = memory_file
         self.history = self._load_memory()
         self._ensure_memory_structure()
+
     def _ensure_memory_structure(self):
-        """Ensure all required memory structures exist."""
         if "conversations" not in self.history:
             self.history["conversations"] = []
         if "preferences" not in self.history:
@@ -45,123 +39,66 @@ class ContextualMemory:
             self.history["entities"] = {}
         if "frequent_topics" not in self.history:
             self.history["frequent_topics"] = {}
-            
+        if "language_progress" not in self.history:
+            self.history["language_progress"] = {
+                "Japanese": {"vocab_known": [], "lessons_completed": [], "daily_streak": 0},
+                "Mandarin": {"vocab_known": [], "lessons_completed": [], "daily_streak": 0}
+            }
+
     def _load_memory(self) -> Dict:
-        """Load memory from file or create if it doesn't exist."""
         try:
             if os.path.exists(self.memory_file):
                 with open(self.memory_file, 'r') as f:
                     return json.load(f)
-            # Create directory if it doesn't exist
             os.makedirs(os.path.dirname(self.memory_file), exist_ok=True)
             return {}
         except Exception as e:
-            logger.error(f"Error loading memory: {e}")
+            print(f"Error loading memory: {e}")
             return {}
-    
+
     def save(self):
-        """Save memory to file."""
         try:
             with open(self.memory_file, 'w') as f:
                 json.dump(self.history, f, indent=2)
         except Exception as e:
-            logger.error(f"Error saving memory: {e}")
-    
-    def add_conversation(self, user_input: str, assistant_response: str, 
-                         context: Dict = None, timestamp: str = None):
-        """Add a conversation exchange to memory."""
-        if timestamp is None:
-            timestamp = datetime.datetime.now().isoformat()
-        
-        conversation = {
-            "user_input": user_input,
-            "assistant_response": assistant_response,
-            "timestamp": timestamp,
-            "context": context or {}
-        }
-        
-        self.history["conversations"].append(conversation)
-        self._update_frequent_topics(user_input)
-        self.save()
-        
-    def _update_frequent_topics(self, text: str):
-        """Update the frequency count of topics based on keywords."""
-        # Simple keyword extraction (in a real system, use NLP)
-        keywords = re.findall(r'\b\w{4,}\b', text.lower())
-        for keyword in keywords:
-            if keyword in self.history["frequent_topics"]:
-                self.history["frequent_topics"][keyword] += 1
-            else:
-                self.history["frequent_topics"][keyword] = 1
-    
-    def set_preference(self, category: str, key: str, value: Any):
-        """Set a user preference."""
-        if category not in self.history["preferences"]:
-            self.history["preferences"][category] = {}
-            
-        self.history["preferences"][category][key] = value
-        self.save()
-    
-    def get_preference(self, category: str, key: str, default: Any = None) -> Any:
-        """Get a user preference."""
-        try:
-            return self.history["preferences"][category][key]
-        except KeyError:
-            return default
-    
-    def add_entity(self, entity_type: str, name: str, properties: Dict):
-        """Add or update an entity (person, place, thing)."""
-        if entity_type not in self.history["entities"]:
-            self.history["entities"][entity_type] = {}
-            
-        if name in self.history["entities"][entity_type]:
-            self.history["entities"][entity_type][name].update(properties)
-        else:
-            self.history["entities"][entity_type][name] = properties
-            
-        self.save()
-    
-    def get_entity(self, entity_type: str, name: str) -> Optional[Dict]:
-        """Get information about a specific entity."""
-        try:
-            return self.history["entities"][entity_type][name]
-        except KeyError:
-            return None
-    
-    def get_recent_conversations(self, count: int = 5) -> List[Dict]:
-        """Retrieve the most recent conversations."""
-        return self.history["conversations"][-count:] if self.history["conversations"] else []
-    
-    def search_conversations(self, query: str) -> List[Dict]:
-        """Search conversations for a specific query."""
-        results = []
-        for conv in self.history["conversations"]:
-            if (query.lower() in conv["user_input"].lower() or 
-                query.lower() in conv["assistant_response"].lower()):
-                results.append(conv)
-        return results
-    
-    def get_most_frequent_topics(self, count: int = 5) -> List[Tuple[str, int]]:
-        """Get the most frequently discussed topics."""
-        topics = sorted(self.history["frequent_topics"].items(), 
-                       key=lambda x: x[1], reverse=True)
-        return topics[:count]
-    
-    def recall(self):
-     return {
-        "history": self.history
-    }
-
+            print(f"Error saving memory: {e}")
 
     def remember(self, user_input, assistant_response):
-     """Store the latest interaction into memory."""
-     self.history["conversations"].append( {
-        "user_input": user_input,
-        "assistant_response": assistant_response,
-        "timestamp": datetime.datetime.now().isoformat(),
-        "context": {}  # You can enhance this with intent, entities, etc.
-    })
-     
+        self.history["conversations"].append({
+            "user_input": user_input,
+            "assistant_response": assistant_response,
+            "timestamp": datetime.datetime.now().isoformat(),
+            "context": {}
+        })
+        self.save()
+
+    def get_recent_conversations(self, count=5):
+        return self.history["conversations"][-count:]
+
+    # ✅ NEW METHODS for language learning
+    def add_vocab(self, language: str, words: List[str]):
+        known = self.history["language_progress"][language]["vocab_known"]
+        for word in words:
+            if word not in known:
+                known.append(word)
+        self.save()
+
+    def get_vocab(self, language: str) -> List[str]:
+        return self.history["language_progress"][language]["vocab_known"]
+
+    def mark_lesson_completed(self, language: str, lesson_id: str):
+        lessons = self.history["language_progress"][language]["lessons_completed"]
+        if lesson_id not in lessons:
+            lessons.append(lesson_id)
+        self.save()
+
+    def increment_streak(self, language: str):
+        self.history["language_progress"][language]["daily_streak"] += 1
+        self.save()
+
+    def get_streak(self, language: str) -> int:
+        return self.history["language_progress"][language]["daily_streak"]
+
 
 
 
