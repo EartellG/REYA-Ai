@@ -13,7 +13,7 @@ from features.youtube_search import get_youtube_metadata
 from features.reddit_search import search_reddit
 from features.web_search import search_web
 
-import re
+import time
 
 reya = ReyaPersonality(
     traits=[TRAITS["stoic"], TRAITS["playful"]],
