@@ -1,15 +1,17 @@
 from fastapi import FastAPI, Request
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
+from time import sleep
+from fastapi.responses import StreamingResponse
 
-from reya_personality import ReyaPersonality, TRAITS, MANNERISMS, STYLES
-from llm_interface import get_response, get_structured_reasoning_prompt, query_ollama
-from features.advanced_features import ContextualMemory
-from intent import recognize_intent
-from features.stackoverflow_search import search_stackoverflow
-from features.youtube_search import get_youtube_metadata
-from features.reddit_search import search_reddit
-from features.web_search import search_web
+from .reya_personality import ReyaPersonality, TRAITS, MANNERISMS, STYLES
+from .llm_interface import get_response, get_structured_reasoning_prompt, query_ollama
+from .features.advanced_features import ContextualMemory
+from .intent import recognize_intent
+from .features.stackoverflow_search import search_stackoverflow
+from .features.youtube_search import get_youtube_metadata
+from .features.reddit_search import search_reddit
+from .features.web_search import search_web
 
 # Initialize app
 app = FastAPI()
@@ -35,6 +37,28 @@ memory = ContextualMemory()
 class MessageRequest(BaseModel):
     message: str
 
+# Test route
+@app.get("/ping")
+def ping():
+    return {"message": "Pong from REYA backend!"}
+
+# Chat route
+class ChatRequest(BaseModel):
+    message: str
+
+@app.post("/chat")
+async def chat_endpoint(request: Request):
+    data = await request.json()
+    user_message = data.get("message", "")
+
+    async def generate_stream():
+        reply = f"Hi there! You said: {user_message}. This is REYA responding in a stream..."
+        for word in reply.split():
+            yield f"{word} "
+            sleep(0.15)  # Simulate typing delay
+
+    return StreamingResponse(generate_stream(), media_type="text/plain")
+
 # Routes
 @app.get("/status")
 def status():
@@ -59,3 +83,9 @@ def logic_layer(data: MessageRequest):
 def multimodal_project_handler(data: MessageRequest):
     # You can later branch based on filetypes, etc.
     return {"response": f"Multimodal handler received: {data.message}"}
+
+from fastapi.responses import JSONResponse
+
+@app.get("/")
+async def root():
+    return JSONResponse(content={"message": "REYA API is running!"})
