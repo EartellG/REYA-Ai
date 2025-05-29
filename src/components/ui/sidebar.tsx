@@ -16,20 +16,20 @@ const icons: Record<string, string> = {
 
 export function Sidebar({ items, activeTab, onTabChange }: SidebarProps) {
   return (
-    <div className="space-y-4">
+    <div className="space-y-2 px-2 py-4">
       {items.map((item) => (
-        <div
+        <button
           key={item}
           onClick={() => onTabChange(item)}
-          className={`cursor-pointer p-2 rounded transition ${
+          className={`flex items-center w-full px-4 py-2 rounded-md transition-colors duration-200 text-left font-medium ${
             activeTab === item
-              ? "bg-gray-800 font-semibold text-white"
-              : "text-gray-400 hover:bg-gray-700"
+              ? "bg-gray-800 text-white"
+              : "text-gray-400 hover:bg-gray-700 hover:text-white"
           }`}
         >
-          <span className="mr-2">{icons[item] || "•"}</span>
+          <span className="mr-2 text-lg">{icons[item] || "•"}</span>
           {item}
-        </div>
+        </button>
       ))}
     </div>
   );
