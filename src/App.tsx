@@ -14,7 +14,9 @@ function App() {
 
   return (
     <main className="container">
-      <h1>Welcome to Tauri + React</h1>
+      <h1 className="text-3xl font-bold text-blue-500 underline">
+      Tailwind is working!</h1>
+
 
       <div className="row">
         <a href="https://vitejs.dev" target="_blank">

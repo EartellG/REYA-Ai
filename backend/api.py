@@ -75,9 +75,11 @@ def chat_endpoint(data: MessageRequest):
 
 @app.post("/reya/logic")
 def logic_layer(data: MessageRequest):
-    prompt = get_structured_reasoning_prompt(data.message)
+    context = memory.get_context()  # get recent memory context
+    prompt = get_structured_reasoning_prompt(data.message, context, reya=reya)
     response = query_ollama(prompt)
     return {"response": response}
+
 
 @app.post("/reya/project")
 def multimodal_project_handler(data: MessageRequest):
