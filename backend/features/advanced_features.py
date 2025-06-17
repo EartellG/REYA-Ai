@@ -30,6 +30,14 @@ class ContextualMemory:
         self.history = self._load_memory()
         self._ensure_memory_structure()
 
+    
+    def get_context(self) -> str:
+        recent = self.history["conversations"][-5:] if len(self.history["conversations"]) >= 5 else self.history["conversations"]
+        context_string = "\n".join([f"User: {entry['user_input']}\nAssistant: {entry['assistant_response']}" for entry in recent])
+        return context_string
+
+
+
     def _ensure_memory_structure(self):
         if "conversations" not in self.history:
             self.history["conversations"] = []

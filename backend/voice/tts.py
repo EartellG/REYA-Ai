@@ -7,10 +7,10 @@ def speak_with_voice_style(text, reya):
         print("[TTS] Skipped speaking empty text.")
         return
 
-    # Optional: limit to 300 characters
-    if len(text) > 300:
+    # Optional: limit to 500 characters
+    if len(text) > 500:
         print("[TTS] Response too long, truncating.")
-        text = text[:300] + "..."
+        text = text[:500] + "..."
 
     # Fix: Unescape text
     cleaned_text = text.encode('utf-8').decode('unicode_escape')
