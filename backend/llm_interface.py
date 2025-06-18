@@ -1,5 +1,5 @@
 import subprocess
-from reya_personality import ReyaPersonality
+from backend.reya_personality import ReyaPersonality
 
 reya_personality = ReyaPersonality()
 
@@ -76,7 +76,7 @@ def get_structured_reasoning_prompt(user_input, history):
 # ✅ Patch for full integration of REYA's personality into structured LLM prompts
 
 # --- llm_interface.py ---
-from reya_personality import ReyaPersonality
+from backend.reya_personality import ReyaPersonality
 
 # Accept the ReyaPersonality instance in prompt generation
 def get_structured_reasoning_prompt(user_input, context, reya=None):

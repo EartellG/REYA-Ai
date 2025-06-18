@@ -4,14 +4,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from time import sleep
 from fastapi.responses import StreamingResponse
 
-from .reya_personality import ReyaPersonality, TRAITS, MANNERISMS, STYLES
-from .llm_interface import get_response, get_structured_reasoning_prompt, query_ollama
-from .features.advanced_features import ContextualMemory
-from .intent import recognize_intent
-from .features.stackoverflow_search import search_stackoverflow
-from .features.youtube_search import get_youtube_metadata
-from .features.reddit_search import search_reddit
-from .features.web_search import search_web
+from backend.reya_personality import ReyaPersonality, TRAITS, MANNERISMS, STYLES
+from backend.llm_interface import get_response, get_structured_reasoning_prompt, query_ollama
+from backend.features.advanced_features import ContextualMemory
+from backend.intent import recognize_intent
+from backend.features.stackoverflow_search import search_stackoverflow
+from backend.features.youtube_search import get_youtube_metadata
+from backend.features.reddit_search import search_reddit
+from backend.features.web_search import search_web
 
 # Initialize app
 app = FastAPI()
