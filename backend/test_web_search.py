@@ -1,6 +1,12 @@
 from features.web_search import search_web
 from voice.edge_tts import speak_with_voice_style
 from reya_personality import ReyaPersonality, TRAITS, MANNERISMS, STYLES
+# import asyncio
+from edge_tts import Communicate
+from playsound import playsound
+import tempfile
+import os
+
 
 query = "where is Germany's capital?"
 result = search_web(query)
