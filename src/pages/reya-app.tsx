@@ -6,16 +6,16 @@ import ProjectsGrid from "@/components/ui/ProjectsGrid";
 import ChatPanel from "@/components/ui/ChatPanel";
 import LogicEngineTab from "@/components/ui/LogicEngineTab";
 import LiveAvatarTab from "@/components/ui/LiveAvatarTab";
-import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
+import ErrorBoundary from "@/components/ui/ErrorBoundary"; // ✅ remove curly braces
 
 export default function REYAApp() {
-  // Active tab state with localStorage persistence
+  // Persistent tab selection
   const [activeTab, setActiveTab] = useState(() => {
-    return localStorage.getItem("activeTab") || "Projects";
+    return localStorage.getItem("reya-active-tab") || "Projects";
   });
 
   useEffect(() => {
-    localStorage.setItem("activeTab", activeTab);
+    localStorage.setItem("reya-active-tab", activeTab);
   }, [activeTab]);
 
   // Mode toggles
@@ -41,46 +41,53 @@ export default function REYAApp() {
         />
       </div>
 
-      {/* Main Content */}
+      {/* Main App Content wrapped in ErrorBoundary */}
       <div className="col-span-10 flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-800">
-          <div className="flex items-center gap-4">
-            <Avatar>
-              <AvatarImage src="/ReyaAva.png" alt="REYA" />
-            </Avatar>
-            <h1 className="text-xl font-semibold">REYA</h1>
+        <ErrorBoundary
+          fallback={
+            <div className="p-10 text-center text-red-500">
+              <h2 className="text-2xl font-bold mb-4">💥 REYA Crashed</h2>
+              <p>Something went wrong. Please reload or switch tabs.</p>
+            </div>
+          }
+        >
+          {/* Header */}
+          <div className="flex items-center justify-between p-4 border-b border-gray-800">
+            <div className="flex items-center gap-4">
+              <Avatar>
+                <AvatarImage src="/ReyaAva.png" alt="REYA" />
+              </Avatar>
+              <h1 className="text-xl font-semibold">REYA</h1>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant={modes.multimodal ? "default" : "outline"}
+                onClick={() => toggleMode("multimodal")}
+              >
+                🧠 Multimodal Mode
+              </Button>
+              <Button
+                variant={modes.liveAvatar ? "default" : "outline"}
+                onClick={() => toggleMode("liveAvatar")}
+              >
+                🧍 Live Avatar Mode
+              </Button>
+              <Button
+                variant={modes.logicEngine ? "default" : "outline"}
+                onClick={() => toggleMode("logicEngine")}
+              >
+                🧮 Logic Engine
+              </Button>
+              <Button
+                variant={modes.offlineSmart ? "default" : "outline"}
+                onClick={() => toggleMode("offlineSmart")}
+              >
+                🌐 Offline Smart Mode
+              </Button>
+            </div>
           </div>
-          <div className="flex gap-2">
-            <Button
-              variant={modes.multimodal ? "default" : "outline"}
-              onClick={() => toggleMode("multimodal")}
-            >
-              🧠 Multimodal Mode
-            </Button>
-            <Button
-              variant={modes.liveAvatar ? "default" : "outline"}
-              onClick={() => toggleMode("liveAvatar")}
-            >
-              🧍 Live Avatar Mode
-            </Button>
-            <Button
-              variant={modes.logicEngine ? "default" : "outline"}
-              onClick={() => toggleMode("logicEngine")}
-            >
-              🧮 Logic Engine
-            </Button>
-            <Button
-              variant={modes.offlineSmart ? "default" : "outline"}
-              onClick={() => toggleMode("offlineSmart")}
-            >
-              🌐 Offline Smart Mode
-            </Button>
-          </div>
-        </div>
 
-        {/* Tab View Area wrapped in ErrorBoundary */}
-        <ErrorBoundary>
+          {/* Dynamic Tab Area */}
           <div className="flex-1 overflow-y-auto">
             {activeTab === "Projects" && <ProjectsGrid />}
             {activeTab === "Chat" && <ChatPanel modes={modes} key="chat-panel" />}
@@ -89,7 +96,9 @@ export default function REYAApp() {
             {activeTab === "Settings" && (
               <div className="p-6">
                 <h2 className="text-2xl font-bold mb-2">Settings</h2>
-                <p>Coming soon: preferences, themes, and data export options.</p>
+                <p>Coming soon: preferences, themes, and data export.</p>
+                <p style={{ color: "red" }}>Build: TESTING FRONTEND CACHE FIX</p>
+
               </div>
             )}
           </div>

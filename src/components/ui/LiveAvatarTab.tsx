@@ -7,7 +7,7 @@ export default function LiveAvatarTab() {
 
   // Simulate avatar speaking
   const simulateSpeak = async () => {
-    const text = "Hello, I'm REYA. How can I assist you today?";
+    const text = "Hello, I'm REYA.";
     setSpokenText(text);
     setAvatarSpeaking(true);
     speakText(text);
