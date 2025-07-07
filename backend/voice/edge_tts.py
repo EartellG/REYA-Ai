@@ -2,27 +2,26 @@ import edge_tts
 import asyncio
 import tempfile
 import os
-from playsound import playsound
+from pydub import AudioSegment
+from pydub.playback import play
 
 
 def get_voice_and_preset(reya):
     """
     Extracts voice name and style preset from REYA's personality.
     """
-    # You can map styles to voices and settings here:
     style_to_voice = {
-        "oracle": "en-US-JennyNeural",  # mysterious tone
+        "oracle": "en-US-JennyNeural",
         "griot": "en-US-GuyNeural",
         "cyberpunk": "en-US-DavisNeural",
         "zen": "en-US-AriaNeural",
         "detective": "en-US-ChristopherNeural",
-        "cyberpunk": "en-NZ-MollyNeural",
+        "companion": "en-GB-MiaNeural"
     }
 
-    style = getattr(reya, "style", "default")
+    style = getattr(reya, "style", "companion")
     voice = style_to_voice.get(style, "en-GB-MiaNeural")
 
-    # Optional: voice customization preset
     preset = {
         "oracle": {"rate": "+20%", "pitch": "+45Hz"},
         "griot": {"rate": "+0%", "pitch": "-1Hz"},
@@ -50,9 +49,13 @@ async def speak_with_voice_style_async(text, reya):
         tmp_name = tmp_file.name
 
     await communicate.save(tmp_name)
-    playsound(tmp_name)
 
-    # Clean up
+    try:
+        audio = AudioSegment.from_file(tmp_name, format="mp3")
+        play(audio)
+    except Exception as e:
+        print(f"[ERROR] Playback failed: {e}")
+
     try:
         os.remove(tmp_name)
     except Exception as e:
@@ -60,4 +63,7 @@ async def speak_with_voice_style_async(text, reya):
 
 
 def speak_with_voice_style(text, reya):
+    if not text.strip():
+        print("[TTS] Empty text, skipping playback.")
+        return
     asyncio.run(speak_with_voice_style_async(text, reya))
