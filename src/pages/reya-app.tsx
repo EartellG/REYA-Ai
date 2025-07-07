@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarImage } from "@/components/ui/avatar";
 import { Sidebar } from "@/components/ui/sidebar";
@@ -6,10 +6,19 @@ import ProjectsGrid from "@/components/ui/ProjectsGrid";
 import ChatPanel from "@/components/ui/ChatPanel";
 import LogicEngineTab from "@/components/ui/LogicEngineTab";
 import LiveAvatarTab from "@/components/ui/LiveAvatarTab";
+import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 
 export default function REYAApp() {
-  const [activeTab, setActiveTab] = useState("Projects");
+  // Active tab state with localStorage persistence
+  const [activeTab, setActiveTab] = useState(() => {
+    return localStorage.getItem("activeTab") || "Projects";
+  });
 
+  useEffect(() => {
+    localStorage.setItem("activeTab", activeTab);
+  }, [activeTab]);
+
+  // Mode toggles
   const [modes, setModes] = useState({
     multimodal: false,
     liveAvatar: false,
@@ -70,19 +79,21 @@ export default function REYAApp() {
           </div>
         </div>
 
-        {/* Dynamic View Area */}
-        <div className="flex-1 overflow-y-auto">
-          {activeTab === "Projects" && <ProjectsGrid />}
-          {activeTab === "Chat" && <ChatPanel modes={modes} />}
-          {activeTab === "Avatar" && <LiveAvatarTab />}
-          {activeTab === "Logic" && <LogicEngineTab />}
-          {activeTab === "Settings" && (
-            <div className="p-6">
-              <h2 className="text-2xl font-bold mb-2">Settings</h2>
-              <p>Coming soon: preferences, themes, and data export options.</p>
-            </div>
-          )}
-        </div>
+        {/* Tab View Area wrapped in ErrorBoundary */}
+        <ErrorBoundary>
+          <div className="flex-1 overflow-y-auto">
+            {activeTab === "Projects" && <ProjectsGrid />}
+            {activeTab === "Chat" && <ChatPanel modes={modes} key="chat-panel" />}
+            {activeTab === "Avatar" && <LiveAvatarTab />}
+            {activeTab === "Logic" && <LogicEngineTab />}
+            {activeTab === "Settings" && (
+              <div className="p-6">
+                <h2 className="text-2xl font-bold mb-2">Settings</h2>
+                <p>Coming soon: preferences, themes, and data export options.</p>
+              </div>
+            )}
+          </div>
+        </ErrorBoundary>
       </div>
     </div>
   );

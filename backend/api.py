@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Request
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
-from time import sleep
+import asyncio
 from fastapi.responses import StreamingResponse
 
 from backend.reya_personality import ReyaPersonality, TRAITS, MANNERISMS, STYLES
@@ -49,15 +49,57 @@ class ChatRequest(BaseModel):
 @app.post("/chat")
 async def chat_endpoint(request: Request):
     data = await request.json()
-    user_message = data.get("message", "")
+    user_message = data.get("message", "").strip()
+
+    if "run diagnostics" in user_message.lower():
+        # Perform diagnostic scan
+        def run_diagnostics():
+            results = []
+            try:
+                # Test personality
+                results.append(f"🧠 Personality loaded: Traits={reya.traits}, Style={reya.style}")
+
+                # Test memory
+                context_test = memory.get_context()
+                results.append("💾 Memory context accessible ✅")
+
+                # Test LLM call
+                prompt = get_structured_reasoning_prompt("test diagnostics", context_test, reya=reya)
+                response = query_ollama(prompt)
+                results.append("📡 LLM response received ✅")
+
+                # Test memory saving
+                memory.remember("diagnostics check", response)
+                results.append("📘 Memory save successful ✅")
+
+                return "\n".join(results)
+
+            except Exception as e:
+                return f"❌ Diagnostics failed with error:\n{e}"
+
+        diagnostics_report = run_diagnostics()
+
+        async def stream_report():
+            for line in diagnostics_report.split("\n"):
+                yield line + "\n"
+                await asyncio.sleep(0.1)  # ✅ Non-blocking sleep
+
+        return StreamingResponse(stream_report(), media_type="text/plain")
+
+    # ✨ Normal REYA response flow
+    context = memory.get_context()
+    prompt = get_structured_reasoning_prompt(user_message, context, reya=reya)
+    full_response = query_ollama(prompt)
+    memory.remember(user_message, full_response)
 
     async def generate_stream():
-        reply = f"Hi there! You said: {user_message}. This is REYA responding in a stream..."
-        for word in reply.split():
+        for word in full_response.split():
             yield f"{word} "
-            sleep(0.15)  # Simulate typing delay
+            await asyncio.sleep(0.05)  # ✅ Non-blocking sleep
 
     return StreamingResponse(generate_stream(), media_type="text/plain")
+
+
 
 # Routes
 @app.get("/status")
@@ -65,13 +107,14 @@ def status():
     return {"status": "REYA backend is running."}
 
 @app.post("/reya/respond")
-def chat_endpoint(data: MessageRequest):
+def respond_endpoint(data: MessageRequest):
     user_input = data.message
     intent = recognize_intent(user_input)
     context = memory.get_context()
     response = get_response(user_input, reya, context)
     memory.update_context(user_input, response)
     return {"response": response}
+
 
 @app.post("/reya/logic")
 def logic_layer(data: MessageRequest):

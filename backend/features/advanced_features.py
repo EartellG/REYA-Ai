@@ -107,6 +107,9 @@ class ContextualMemory:
     def get_streak(self, language: str) -> int:
         return self.history["language_progress"][language]["daily_streak"]
 
+ContextualMemory.update_context = ContextualMemory.remember
+
+
 
 
 
