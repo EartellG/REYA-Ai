@@ -17,5 +17,10 @@
   "service_integration": {
     "allow_cloud_processing": true,
     "allow_api_calls": true
-  }
+  },
+  "python.analysis.extraPaths": [
+    "./",               // root directory
+    "./backend",        // explicitly include backend
+    "./src"             // (optional) if you have a src folder
+]
 }
