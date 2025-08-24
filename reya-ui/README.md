@@ -67,3 +67,8 @@ export default tseslint.config([
   },
 ])
 ```
+
+
+
+#backend run commend
+python -m uvicorn backend.api:app --reload --port 8000.

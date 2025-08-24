@@ -2,13 +2,16 @@ import edge_tts
 import asyncio
 import tempfile
 import os
+from typing import Tuple, Dict, Any
+
+# Optional playback deps (you already had these). Not needed for file save.
 from pydub import AudioSegment
 from pydub.playback import play
 
 
-def get_voice_and_preset(reya):
+def get_voice_and_preset(reya) -> Tuple[str, Dict[str, Any]]:
     """
-    Extracts voice name and style preset from REYA's personality.
+    Map REYA style -> Edge voice + preset. Falls back gracefully.
     """
     style_to_voice = {
         "oracle": "en-US-JennyNeural",
@@ -16,7 +19,7 @@ def get_voice_and_preset(reya):
         "cyberpunk": "en-US-DavisNeural",
         "zen": "en-US-AriaNeural",
         "detective": "en-US-ChristopherNeural",
-        "companion": "en-GB-MiaNeural"
+        "companion": "en-GB-MiaNeural",
     }
 
     style = getattr(reya, "style", "companion")
@@ -34,6 +37,32 @@ def get_voice_and_preset(reya):
     return voice, preset
 
 
+# -------------------------
+# 1) Save-to-file (for frontend playback)
+# -------------------------
+async def synthesize_to_file(text: str, reya, out_path: str) -> str:
+    """
+    Synthesize `text` using Edge TTS and save to `out_path` (mp3).
+    Returns the output path.
+    """
+    if not text or not text.strip():
+        raise ValueError("Empty text for TTS.")
+
+    voice, preset = get_voice_and_preset(reya)
+    communicator = edge_tts.Communicate(
+        text,
+        voice=voice,
+        rate=preset.get("rate", "+0%"),
+        pitch=preset.get("pitch", "+0Hz"),
+        volume=preset.get("volume", "+0%"),
+    )
+    await communicator.save(out_path)
+    return out_path
+
+
+# -------------------------
+# 2) Your existing server-side playback helpers (unchanged)
+# -------------------------
 async def speak_with_voice_style_async(text, reya):
     voice, preset = get_voice_and_preset(reya)
 
@@ -42,7 +71,7 @@ async def speak_with_voice_style_async(text, reya):
         voice=voice,
         rate=preset.get("rate", "+0%"),
         pitch=preset.get("pitch", "+0Hz"),
-        volume=preset.get("volume", "+0%")
+        volume=preset.get("volume", "+0%"),
     )
 
     with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_file:
@@ -63,7 +92,7 @@ async def speak_with_voice_style_async(text, reya):
 
 
 def speak_with_voice_style(text, reya):
-    if not text.strip():
+    if not text or not text.strip():
         print("[TTS] Empty text, skipping playback.")
         return
     asyncio.run(speak_with_voice_style_async(text, reya))

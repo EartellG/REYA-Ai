@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 from fastapi.responses import StreamingResponse
-
+from backend.voice.edge_tts import speak_with_voice_style
 from backend.reya_personality import ReyaPersonality, TRAITS, MANNERISMS, STYLES
 from backend.llm_interface import get_response, get_structured_reasoning_prompt, query_ollama
 from backend.features.advanced_features import ContextualMemory
@@ -43,6 +43,19 @@ def ping():
     return {"message": "Pong from REYA backend!"}
 
 # Chat route
+
+class SpeakRequest(BaseModel):
+    message: str
+
+@app.post("/speak")
+async def speak_endpoint(data: SpeakRequest):
+    text = (data.message or "").strip()
+    if not text:
+        return {"ok": False, "error": "Empty message"}
+    # run TTS off the event loop so we don't block FastAPI
+    asyncio.create_task(asyncio.to_thread(speak_with_voice_style, text, reya))
+    return {"ok": True}
+
 class ChatRequest(BaseModel):
     message: str
 
@@ -134,3 +147,32 @@ from fastapi.responses import JSONResponse
 @app.get("/")
 async def root():
     return JSONResponse(content={"message": "REYA API is running!"})
+
+
+# ✨ Normal REYA response flow
+context = memory.get_context()
+prompt = get_structured_reasoning_prompt(user_message, context, reya=reya)
+full_response = query_ollama(prompt)
+memory.remember(user_message, full_response)
+
+# 🔊 Speak without blocking the stream
+asyncio.create_task(asyncio.to_thread(speak_with_voice_style, full_response, reya))
+
+async def generate_stream():
+    for word in full_response.split():
+        yield f"{word} "
+        await asyncio.sleep(0.05)
+    return StreamingResponse(generate_stream(), media_type="text/plain")
+
+
+
+
+#Use cases and calls
+
+result = search_stackoverflow("Search Stackoverflow for?")
+
+result = get_youtube_metadata("search youtube for?")
+
+result = search_reddit("search reddit for?")
+
+result = search_web("search web for?")   
