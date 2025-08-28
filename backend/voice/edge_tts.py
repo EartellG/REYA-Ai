@@ -1,14 +1,26 @@
-import edge_tts
+# backend/edge_tts.py
+import os
+import re
 import asyncio
 import tempfile
-import os
-from typing import Tuple, Dict, Any
+from typing import Tuple, Dict, Any, Optional
 
-# Optional playback deps (you already had these). Not needed for file save.
-from pydub import AudioSegment
-from pydub.playback import play
+import edge_tts
 
+# Optional playback deps; keep them guarded
+try:
+    from pydub import AudioSegment
+    from pydub.playback import play
+    _PYDUB_OK = True
+except Exception:
+    _PYDUB_OK = False
 
+# ---------- Config ----------
+STATIC_DIR = os.path.join("static")
+AUDIO_DIR = os.path.join(STATIC_DIR, "audio")
+os.makedirs(AUDIO_DIR, exist_ok=True)
+
+# ---------- Voice selection ----------
 def get_voice_and_preset(reya) -> Tuple[str, Dict[str, Any]]:
     """
     Map REYA style -> Edge voice + preset. Falls back gracefully.
@@ -26,46 +38,66 @@ def get_voice_and_preset(reya) -> Tuple[str, Dict[str, Any]]:
     voice = style_to_voice.get(style, "en-GB-MiaNeural")
 
     preset = {
-        "oracle": {"rate": "+20%", "pitch": "+45Hz"},
-        "griot": {"rate": "+0%", "pitch": "-1Hz"},
-        "cyberpunk": {"rate": "+10%", "pitch": "+4Hz"},
-        "zen": {"rate": "-10%", "pitch": "-4Hz"},
-        "detective": {"rate": "-5%", "pitch": "-2Hz"},
-        "companion": {"rate": "+0%", "pitch": "+15Hz"},
-    }.get(style, {"rate": "+0%", "pitch": "+0Hz"})
+        "oracle":     {"rate": "+20%", "pitch": "+45Hz", "volume": "+0%"},
+        "griot":      {"rate": "+0%",  "pitch": "-1Hz",  "volume": "+0%"},
+        "cyberpunk":  {"rate": "+10%", "pitch": "+4Hz",  "volume": "+0%"},
+        "zen":        {"rate": "-10%", "pitch": "-4Hz",  "volume": "+0%"},
+        "detective":  {"rate": "-5%",  "pitch": "-2Hz",  "volume": "+0%"},
+        "companion":  {"rate": "+0%",  "pitch": "+15Hz", "volume": "+0%"},
+    }.get(style, {"rate": "+0%", "pitch": "+0Hz", "volume": "+0%"})
 
     return voice, preset
 
+# ---------- Utilities ----------
+def _normalize_text(text: str, max_len: int = 8000) -> str:
+    # collapse excessive whitespace and clamp length for safety
+    cleaned = re.sub(r"\s+", " ", text or "").strip()
+    return cleaned[:max_len]
 
-# -------------------------
-# 1) Save-to-file (for frontend playback)
-# -------------------------
+def _ensure_parent(path: str) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+
+# ---------- 1) Save-to-file (for frontend playback) ----------
 async def synthesize_to_file(text: str, reya, out_path: str) -> str:
     """
     Synthesize `text` using Edge TTS and save to `out_path` (mp3).
-    Returns the output path.
+    Returns the output path (filesystem path).
     """
-    if not text or not text.strip():
+    text = _normalize_text(text)
+    if not text:
         raise ValueError("Empty text for TTS.")
 
     voice, preset = get_voice_and_preset(reya)
-    communicator = edge_tts.Communicate(
+    communicate = edge_tts.Communicate(
         text,
         voice=voice,
         rate=preset.get("rate", "+0%"),
         pitch=preset.get("pitch", "+0Hz"),
         volume=preset.get("volume", "+0%"),
     )
-    await communicator.save(out_path)
+    _ensure_parent(out_path)
+    await communicate.save(out_path)
     return out_path
 
+async def synthesize_to_static_url(text: str, reya) -> str:
+    """
+    Synthesize to `static/audio/<uuid>.mp3` and return a URL path
+    like `/static/audio/<uuid>.mp3` suitable for the frontend.
+    """
+    from uuid import uuid4
+    filename = f"{uuid4()}.mp3"
+    fs_path = os.path.join(AUDIO_DIR, filename)
+    await synthesize_to_file(text, reya, fs_path)
+    return f"/static/audio/{filename}"
 
-# -------------------------
-# 2) Your existing server-side playback helpers (unchanged)
-# -------------------------
-async def speak_with_voice_style_async(text, reya):
+# ---------- 2) Optional server-side playback ----------
+async def speak_with_voice_style_async(text: str, reya) -> None:
+    text = _normalize_text(text)
+    if not text:
+        print("[TTS] Empty text, skipping playback.")
+        return
+
     voice, preset = get_voice_and_preset(reya)
-
     communicate = edge_tts.Communicate(
         text,
         voice=voice,
@@ -77,22 +109,34 @@ async def speak_with_voice_style_async(text, reya):
     with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_file:
         tmp_name = tmp_file.name
 
-    await communicate.save(tmp_name)
-
     try:
-        audio = AudioSegment.from_file(tmp_name, format="mp3")
-        play(audio)
-    except Exception as e:
-        print(f"[ERROR] Playback failed: {e}")
+        await communicate.save(tmp_name)
+        if _PYDUB_OK:
+            try:
+                audio = AudioSegment.from_file(tmp_name, format="mp3")
+                play(audio)
+            except Exception as e:
+                print(f"[ERROR] Playback failed: {e}")
+        else:
+            print("[TTS] pydub/ffmpeg not available; skipping playback.")
+    finally:
+        try:
+            os.remove(tmp_name)
+        except Exception:
+            pass
 
+def speak_with_voice_style(text: str, reya) -> None:
+    """
+    Safe to call from both script and FastAPI contexts.
+    - If no running loop: runs a new loop (script usage).
+    - If already in an event loop (e.g., FastAPI): schedules a background task.
+    """
     try:
-        os.remove(tmp_name)
-    except Exception as e:
-        print(f"[Warning] Couldn't delete temp file: {e}")
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
 
-
-def speak_with_voice_style(text, reya):
-    if not text or not text.strip():
-        print("[TTS] Empty text, skipping playback.")
-        return
-    asyncio.run(speak_with_voice_style_async(text, reya))
+    if loop and loop.is_running():
+        asyncio.create_task(speak_with_voice_style_async(text, reya))
+    else:
+        asyncio.run(speak_with_voice_style_async(text, reya))
