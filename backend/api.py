@@ -21,6 +21,7 @@ from backend.llm_interface import (
 from backend.features.advanced_features import ContextualMemory
 from backend.intent import recognize_intent
 from backend.diagnostics import run_diagnostics
+from backend.voice.edge_tts import synthesize_to_static_url
 from backend.features.stackoverflow_search import search_stackoverflow
 from backend.features.youtube_search import get_youtube_metadata
 from backend.features.reddit_search import search_reddit
@@ -80,6 +81,14 @@ class ChatRequest(BaseModel):
 @app.get("/ping")
 def ping():
     return {"message": "Pong from REYA backend!"}
+
+@app.post("/tts")
+async def tts_endpoint(data: dict):
+    text = (data.get("text") or "").strip()
+    if not text:
+        return {"ok": False, "error": "Empty text"}
+    url = await synthesize_to_static_url(text, reya)
+    return {"ok": True, "audio_url": url}
 
 @app.get("/")
 async def root():

@@ -12,14 +12,12 @@ export default function LiveAvatarTab() {
     setAvatarSpeaking(true);
 
     const audio = await playReyaTTS(text);
-
-    // If autoplay was blocked or there was an error, stop animating.
     if (!audio) {
       setAvatarSpeaking(false);
       return;
     }
 
-    // End animation when audio ends
+    console.log("LiveAvatar audio src:", audio.src); // should be /static/audio/....mp3
     audio.onended = () => setAvatarSpeaking(false);
     audio.onpause = () => setAvatarSpeaking(false);
     audio.onerror = () => setAvatarSpeaking(false);
@@ -31,7 +29,7 @@ export default function LiveAvatarTab() {
       <img
         src="/REYA_Avatar.png"
         alt="REYA Avatar"
-        className={`mx-auto h-48 transition-transform ${
+        className={`mx-auto h-48 w-48 object-cover rounded-full transition-transform ${
           avatarSpeaking ? "animate-pulse scale-105" : ""
         }`}
       />
