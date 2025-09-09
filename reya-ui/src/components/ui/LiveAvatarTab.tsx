@@ -1,23 +1,28 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { playReyaTTS } from "@/lib/reyaTts";
 
 export default function LiveAvatarTab() {
   const [avatarSpeaking, setAvatarSpeaking] = useState(false);
   const [spokenText, setSpokenText] = useState("");
 
-  // Simulate avatar speaking
   const simulateSpeak = async () => {
     const text = "Hello, I'm REYA.";
     setSpokenText(text);
     setAvatarSpeaking(true);
-    speakText(text);
-  };
 
-  const speakText = (text: string) => {
-    const synth = window.speechSynthesis;
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.onend = () => setAvatarSpeaking(false);
-    synth.speak(utterance);
+    const audio = await playReyaTTS(text);
+
+    // If autoplay was blocked or there was an error, stop animating.
+    if (!audio) {
+      setAvatarSpeaking(false);
+      return;
+    }
+
+    // End animation when audio ends
+    audio.onended = () => setAvatarSpeaking(false);
+    audio.onpause = () => setAvatarSpeaking(false);
+    audio.onerror = () => setAvatarSpeaking(false);
   };
 
   return (

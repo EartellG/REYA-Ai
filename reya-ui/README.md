@@ -67,3 +67,15 @@ export default tseslint.config([
   },
 ])
 ```
+
+
+
+#backend run commend
+$ python -m uvicorn backend.api:app --reload --host 127.0.0.1 --port 8000
+- run From REYA-Ai(all caps).
+
+
+#frontend run commend
+Npm run dev
+- run From Reya-ui
+ 
