@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import SystemStatusModal from "@/components/SystemStatusModal";
+import { playReyaTTS } from "@/lib/reyaTts";
 
 interface ChatPanelProps {
   modes: {
@@ -33,8 +34,11 @@ export default function ChatPanel({ modes }: ChatPanelProps) {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isLoading]);
 
-  const streamText = async (userText: string) => {
+  // Stream the assistant text and return the final accumulated string
+  const streamText = async (userText: string): Promise<string> => {
+    // append user message
     setMessages((prev) => [...prev, { sender: "user", text: userText }]);
+    // append empty assistant message and remember its index
     setMessages((prev) => {
       const idx = prev.length;
       assistantIndexRef.current = idx;
@@ -50,8 +54,9 @@ export default function ChatPanel({ modes }: ChatPanelProps) {
       body: JSON.stringify({ message: userText }),
       signal: controller.signal,
     });
-
-    if (!response.ok || !response.body) throw new Error("Stream failed");
+    if (!response.ok || !response.body) {
+      throw new Error("Stream failed");
+    }
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder("utf-8");
@@ -65,29 +70,13 @@ export default function ChatPanel({ modes }: ChatPanelProps) {
 
       const idx = assistantIndexRef.current;
       if (idx !== null) {
-        setMessages((prev) => prev.map((m, i) => (i === idx ? { ...m, text: accumulated } : m)));
+        setMessages((prev) =>
+          prev.map((m, i) => (i === idx ? { ...m, text: accumulated } : m))
+        );
       }
     }
-  };
 
-  const fetchTTS = async (userText: string) => {
-    const res = await fetch(`${API_BASE}/chat?speak=true`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: userText }),
-    });
-
-    if (!res.ok) throw new Error("TTS fetch failed");
-    const data: { text: string; audio_url?: string | null } = await res.json();
-
-    if (data.audio_url) {
-      const url = `${API_BASE}${data.audio_url}`;
-      setLastAudioUrl(url);
-      try {
-        const audio = new Audio(url);
-        await audio.play();
-      } catch {}
-    }
+    return accumulated.trim();
   };
 
   const sendMessage = async () => {
@@ -98,11 +87,21 @@ export default function ChatPanel({ modes }: ChatPanelProps) {
     setIsLoading(true);
 
     try {
-      await streamText(userText);
-      if (speakEnabled) await fetchTTS(userText);
+      // 1) stream assistant text
+      const finalText = await streamText(userText);
+
+      // 2) speak exactly what was displayed (no second LLM call)
+      if (speakEnabled && finalText) {
+        const audio = await playReyaTTS(finalText); // posts to /tts
+        // remember for "Play reply" button
+        if (audio?.src) setLastAudioUrl(audio.src);
+      }
     } catch (err) {
       console.error("Chat error:", err);
-      setMessages((prev) => [...prev, { sender: "reya", text: "⚠️ Something went wrong." }]);
+      setMessages((prev) => [
+        ...prev,
+        { sender: "reya", text: "⚠️ Something went wrong." },
+      ]);
     } finally {
       setIsLoading(false);
     }
@@ -137,7 +136,6 @@ export default function ChatPanel({ modes }: ChatPanelProps) {
             ▶ Play reply
           </Button>
         )}
-        {/* System Status modal trigger */}
         <SystemStatusModal />
       </div>
 
@@ -146,7 +144,8 @@ export default function ChatPanel({ modes }: ChatPanelProps) {
           <Card key={idx} className="bg-gray-800">
             <CardContent>
               <p>
-                <strong>{msg.sender === "user" ? "You" : "REYA"}</strong>: {msg.text}
+                <strong>{msg.sender === "user" ? "You" : "REYA"}</strong>:{" "}
+                {msg.text}
               </p>
             </CardContent>
           </Card>
@@ -155,7 +154,8 @@ export default function ChatPanel({ modes }: ChatPanelProps) {
           <Card className="bg-gray-800">
             <CardContent>
               <p>
-                <strong>REYA</strong>: <span className="animate-pulse">...</span>
+                <strong>REYA</strong>:{" "}
+                <span className="animate-pulse">...</span>
               </p>
             </CardContent>
           </Card>

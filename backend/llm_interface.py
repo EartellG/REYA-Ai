@@ -1,116 +1,149 @@
+# backend/llm_interface.py
+import os
+import json
 import subprocess
-from backend.reya_personality import ReyaPersonality
+from typing import List, Optional
 
-reya_personality = ReyaPersonality()
+# ------------------------------------------------------------------
+# Model selection (single source of truth)
+# ------------------------------------------------------------------
+DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "mistral").strip()            # main chat model
+INTENT_MODEL  = os.getenv("OLLAMA_INTENT_MODEL", DEFAULT_MODEL).strip() # tiny/fast classifier
 
-def query_ollama(prompt: str, model: str = "llama3") -> str:
+# ------------------------------------------------------------------
+# Ollama helpers
+# ------------------------------------------------------------------
+def _ollama_list() -> List[str]:
+    """
+    Return installed model names. Tries JSON lines first, falls back to table parsing.
+    """
+    # Try JSON (newer ollama versions)
     try:
-        result = subprocess.run(
-            f'echo {prompt!r} | ollama run {model}',
-            shell=True,
-            capture_output=True,
-            text=True,
-            encoding="utf-8"
+        p = subprocess.run(
+            ["ollama", "list", "--json"],
+            capture_output=True, text=True, check=True,
+            encoding="utf-8", errors="replace"
         )
-        return result.stdout.strip()
+        names: List[str] = []
+        for line in p.stdout.splitlines():
+            try:
+                row = json.loads(line)
+                name = row.get("name")
+                if name:
+                    names.append(name)
+            except json.JSONDecodeError:
+                pass
+        if names:
+            return names
+    except Exception:
+        pass
+
+    # Fallback: parse the plain table output
+    try:
+        p = subprocess.run(
+            ["ollama", "list"],
+            capture_output=True, text=True, check=True,
+            encoding="utf-8", errors="replace"
+        )
+        out: List[str] = []
+        for i, ln in enumerate(p.stdout.splitlines()):
+            if i == 0:  # skip header line: NAME  ID  SIZE  MODIFIED
+                continue
+            parts = ln.split()
+            if parts:
+                out.append(parts[0])
+        return out
+    except Exception:
+        return []
+
+def get_installed_models() -> List[str]:
+    return _ollama_list()
+
+def get_default_model() -> str:
+    return DEFAULT_MODEL
+
+# ------------------------------------------------------------------
+# Single safe query function
+# ------------------------------------------------------------------
+def query_ollama(prompt: str, model: Optional[str] = None) -> str:
+    """
+    Run `ollama run <model>` with the prompt on STDIN.
+    - No shell=True (portable & safe).
+    - Force UTF-8 decoding on Windows to avoid UnicodeDecodeError.
+    """
+    use_model = (model or DEFAULT_MODEL).strip()
+    try:
+        p = subprocess.run(
+            ["ollama", "run", use_model],
+            input=prompt,
+            capture_output=True, text=True, check=False,
+            encoding="utf-8", errors="replace"
+        )
+        out = p.stdout.strip()
+        if out:
+            return out
+        err = (p.stderr or "").strip()
+        return f"[ollama:{use_model} error] {err}" if err else "[ollama] empty response"
     except Exception as e:
-        return f"[Error querying Ollama]: {e}"
+        return f"[ollama:{use_model} exception] {e}"
 
-
-# Main function to get a response from the assistant
-def get_response(user_input, history):
-    prompt = get_structured_reasoning_prompt(user_input, history)
-    return query_ollama(prompt, model="llama3")  # You can change this model
-
-# Classify user intent using a lightweight model
-def classify_intent(prompt: str) -> str:
-    system_prompt = """
-You are an intent classifier for a voice assistant.
-Given a user's command, respond with one of the following intents:
-- "note"
-- "reminder"
-- "web_search"
-- "greeting"
-- "exit"
-Only return the intent label.
-"""
-    full_prompt = f"{system_prompt}\nUser: {prompt}\nIntent:"
-    return query_ollama(full_prompt, model="mistral")  # Use a small model for speed
-
-# Build the structured reasoning prompt from memory
-def get_structured_reasoning_prompt(user_input, history):
+# ------------------------------------------------------------------
+# Prompting / persona
+# ------------------------------------------------------------------
+def get_structured_reasoning_prompt(user_input, context, reya=None) -> str:
     """
-    Build a prompt focused on answering the current question,
-    using prior context only if it's clearly relevant.
-    Includes guidance to give a short answer first and offer details if needed.
+    Build a concise REYA prompt that respects personality and recent context.
     """
-    # Grab last 2 interactions if available
-    recent_items = history[-2:] if isinstance(history, list) else []
+    # Flatten recent context (adjust to your memory shape if needed)
+    ctx_lines: List[str] = []
+    if isinstance(context, list):
+        for item in context[-4:]:  # last few turns
+            try:
+                u = (item.get("user_input") or "").strip()
+                a = (item.get("assistant_response") or "").strip()
+                if u or a:
+                    ctx_lines.append(f"User: {u}\nReya: {a}")
+            except Exception:
+                ctx_lines.append(str(item))
+    context_str = "\n\n".join(ctx_lines) or "(none)"
 
-    context_block = ""
-    for item in recent_items:
-        response = item["assistant_response"].strip()
-        # Filter out garbage responses that still contain "You are REYA"
-        if "You are REYA" in response:
-            continue
-        context_block += f"User: {item['user_input'].strip()}\nReya: {response}\n"
-
-       
-
-    # Base instructions
-    instructions = (
-        "Answer the user's current question briefly and clearly.\n"
-        "If the answer is complex, give a short summary first and ask if they want a detailed explanation.\n"
-        "Only use previous context if it directly helps answer the question.\n\n"
-    )
-
-    # Build final prompt
-    prompt = ""
-    if context_block:
-        prompt += f"Relevant past context:\n{context_block.strip()}\n\n"
-
-    prompt += instructions
-    prompt += f"User: {user_input.strip()}\nReya:"
-    return prompt.strip()
-
-# ✅ Patch for full integration of REYA's personality into structured LLM prompts
-
-# --- llm_interface.py ---
-from backend.reya_personality import ReyaPersonality
-
-# Accept the ReyaPersonality instance in prompt generation
-def get_structured_reasoning_prompt(user_input, context, reya=None):
-    context_str = "\n".join(str(item) for item in (context or []))
-
-
-    # Extract personality info
+    traits = mannerisms = style = "default"
     if reya:
-        personality = reya.describe()
-        traits = ", ".join(personality['traits'])
-        mannerisms = ", ".join(personality['mannerisms'])
-        style = personality['style']
-    else:
-        traits = mannerisms = style = "default"
+        p = reya.describe()
+        traits = ", ".join(p.get("traits", [])) or "default"
+        mannerisms = ", ".join(p.get("mannerisms", [])) or "default"
+        style = p.get("style", "default")
 
-    prompt = f"""
-You are REYA, an AI assistant with personality traits: {traits}, speaking in a "{style}" style.
+    return f"""You are REYA, an AI assistant with personality traits: {traits}, speaking in a "{style}" style.
 You often express yourself using mannerisms like: {mannerisms}.
 
-Your goals:
-- Stay true to your personality and mannerisms.
-- Be relevant, helpful, and engaging.
-- Match your tone to the user's energy.
-- Reference the conversation context when helpful.
+Guidelines:
+- Be brief and clear first; offer details if the user asks.
+- Use prior context only when it directly helps.
+- Keep tone consistent with your personality.
 
-Context:
+Context (recent):
 {context_str}
 
-User said: "{user_input}"
+User: {user_input}
 
-Respond as REYA:
-"""
-    return prompt
+Reya:"""
 
-def get_response(user_input, history):
-    prompt = get_structured_reasoning_prompt(user_input, history, reya=reya_personality)
-    return query_ollama(prompt, model="llama3")
+# ------------------------------------------------------------------
+# High-level helpers used by the API
+# ------------------------------------------------------------------
+def get_response(user_input, reya, history):
+    prompt = get_structured_reasoning_prompt(user_input, history, reya=reya)
+    return query_ollama(prompt, model=DEFAULT_MODEL)
+
+def classify_intent(text: str) -> str:
+    """
+    Tiny classifier for routing. Uses INTENT_MODEL by default.
+    """
+    system = (
+        "You are an intent classifier for a voice assistant.\n"
+        "Given a user's command, answer with one label exactly:\n"
+        "note | reminder | web_search | greeting | exit"
+    )
+    prompt = f"{system}\nUser: {text}\nIntent:"
+    return query_ollama(prompt, model=INTENT_MODEL)

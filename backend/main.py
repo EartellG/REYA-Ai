@@ -20,7 +20,7 @@ reya = ReyaPersonality(
     mannerisms=[MANNERISMS["sassy"], MANNERISMS["meta_awareness"]],
     style=STYLES["oracle"],
     voice="en-GB-MiaNeural",
-    preset={"rate": "-10%", "pitch": "-5Hz", "volume": "+0%"}
+    preset={"rate": "+12%", "pitch": "-5Hz", "volume": "+0%"}
 )
 
 memory = ContextualMemory()

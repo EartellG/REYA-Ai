@@ -27,9 +27,9 @@ export default function LiveAvatarTab() {
     <div className="p-6 text-center">
       <h2 className="text-2xl font-bold mb-4">👄 Live Avatar Mode</h2>
       <img
-        src="/REYA_Avatar.png"
+        src="/ReyaAva.png"
         alt="REYA Avatar"
-        className={`mx-auto h-48 w-48 object-cover rounded-full transition-transform ${
+        className={`mx-auto h-55 w-52 object-cover rounded-full transition-transform ${
           avatarSpeaking ? "animate-pulse scale-105" : ""
         }`}
       />
