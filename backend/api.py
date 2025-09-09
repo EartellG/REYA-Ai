@@ -1,6 +1,9 @@
 # backend/api.py
 import os
 import asyncio
+import sys
+import traceback
+import importlib
 from typing import Optional
 
 from fastapi import FastAPI, Request, Query
@@ -39,6 +42,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 # -----------------------
 # Static files for audio
 # -----------------------
@@ -51,8 +55,11 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 reya = ReyaPersonality(
     traits=[TRAITS["stoic"], TRAITS["playful"]],
     mannerisms=[MANNERISMS["sassy"], MANNERISMS["meta_awareness"]],
-    style=STYLES["oracle"],
+    style=STYLES["oracle"],  # fine to keep this for text vibe
+    voice="en-GB-MiaNeural",  # <-- your voice
+    preset={"rate": "-10%", "pitch": "-5Hz", "volume": "+0%"}  # <-- your preset
 )
+
 memory = ContextualMemory()
 
 # -----------------------
@@ -82,6 +89,23 @@ async def root():
 def status():
     return {"status": "REYA backend is running."}
 
+@app.get("/debug/info")
+def debug_info():
+    info = {
+        "cwd": os.getcwd(),
+        "sys_path_first": sys.path[:3],
+        "reya_voice": getattr(reya, "voice", None),
+        "reya_preset": getattr(reya, "preset", None),
+    }
+    try:
+        et = importlib.import_module("backend.voice.edge_tts")
+        info["edge_tts_module"] = getattr(et, "__file__", "unknown")
+        info["edge_tts_exports"] = [n for n in dir(et) if n.startswith(("synthesize_", "speak_"))]
+        info["edge_tts_signature"] = getattr(et, "SIGNATURE", "(no signature)")
+    except Exception as e:
+        info["edge_tts_import_error"] = repr(e)
+        info["edge_tts_traceback"] = traceback.format_exc(limit=2)
+    return info
 # -----------------------
 # TTS (fire-and-forget) - Local server playback (optional)
 # -----------------------
@@ -92,6 +116,10 @@ async def speak_endpoint(data: SpeakRequest):
         return {"ok": False, "error": "Empty message"}
     asyncio.create_task(asyncio.to_thread(speak_with_voice_style, text, reya))
     return {"ok": True}
+
+@app.on_event("startup")
+async def _boot_banner():
+    print("[REYA] Booting API… voice:", getattr(reya, "voice", None))
 
 # -----------------------
 # Chat (streaming by default; TTS JSON mode with ?speak=true)
@@ -106,12 +134,15 @@ async def chat_endpoint(request: Request, speak: bool = Query(False)):
 
     # --- Diagnostics shortcut ---
     if "run diagnostics" in user_message.lower():
-     report = await run_diagnostics(reya, memory, expected_ollama_model="mistral")
-    text = report.as_text()
-    async def stream_report():
-        for line in text.split("\n"):
-            yield line + "\n"
-            await asyncio.sleep(0.03)
+        report = await run_diagnostics(reya, memory, expected_ollama_model="mistral")
+        text = report.as_text()
+
+        async def stream_report():
+            for line in text.split("\n"):
+                yield line + "\n"
+                await asyncio.sleep(0.03)
+
+        # NOTE: this return MUST be OUTSIDE the async generator above
         return StreamingResponse(stream_report(), media_type="text/plain")
 
     # --- Normal REYA flow ---
@@ -120,7 +151,6 @@ async def chat_endpoint(request: Request, speak: bool = Query(False)):
     full_response: str = query_ollama(prompt)  # sync call returns a string
     memory.remember(user_message, full_response)
 
-    # If speak=true, return JSON with text + audio_url (no text streaming)
     if speak:
         try:
             audio_url = await synthesize_to_static_url(full_response, reya)
@@ -131,7 +161,6 @@ async def chat_endpoint(request: Request, speak: bool = Query(False)):
             )
         return JSONResponse({"text": full_response, "audio_url": audio_url}, status_code=200)
 
-    # Otherwise, stream the text word-by-word (existing behavior)
     async def generate_stream():
         for word in full_response.split():
             yield f"{word} "

@@ -8,3 +8,4 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <REYAApp />
   </React.StrictMode>,
 );
+console.log("REYA UI boot",new Date().toISOString());
