@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi import Body
 
 from backend.reya_personality import ReyaPersonality, TRAITS, MANNERISMS, STYLES
 from backend.llm_interface import (
@@ -58,7 +59,7 @@ reya = ReyaPersonality(
     mannerisms=[MANNERISMS["sassy"], MANNERISMS["meta_awareness"]],
     style=STYLES["oracle"],  # fine to keep this for text vibe
     voice="en-GB-MiaNeural",  # <-- your voice
-    preset={"rate": "-10%", "pitch": "-5Hz", "volume": "+0%"}  # <-- your preset
+    preset={"rate": "+12%", "pitch": "-5Hz", "volume": "+0%"}  # <-- your preset
 )
 
 memory = ContextualMemory()
@@ -81,14 +82,6 @@ class ChatRequest(BaseModel):
 @app.get("/ping")
 def ping():
     return {"message": "Pong from REYA backend!"}
-
-@app.post("/tts")
-async def tts_endpoint(data: dict):
-    text = (data.get("text") or "").strip()
-    if not text:
-        return {"ok": False, "error": "Empty text"}
-    url = await synthesize_to_static_url(text, reya)
-    return {"ok": True, "audio_url": url}
 
 @app.get("/")
 async def root():
@@ -185,8 +178,8 @@ def respond_endpoint(data: MessageRequest):
     user_input = data.message
     intent = recognize_intent(user_input)
     context = memory.get_context()
-    response = get_response(user_input, reya, context)
-    memory.update_context(user_input, response)
+    response = get_response(user_input, context)
+    memory.remember(user_input, response)
     return {"response": response}
 
 @app.post("/reya/logic")
@@ -199,6 +192,14 @@ def logic_layer(data: MessageRequest):
 @app.post("/reya/project")
 def multimodal_project_handler(data: MessageRequest):
     return {"response": f"Multimodal handler received: {data.message}"}
+
+@app.post("/tts")
+async def tts_endpoint(payload: dict = Body(...)):
+    text = (payload.get("text") or "").strip()
+    if not text:
+        return {"ok": False, "error": "Empty text"}
+    url = await synthesize_to_static_url(text, reya)
+    return {"ok": True, "audio_url": url}
 
 @app.get("/diagnostics")
 async def diagnostics_json():

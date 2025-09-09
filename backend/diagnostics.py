@@ -3,10 +3,10 @@ import os
 import shutil
 import tempfile
 import asyncio
-import re
 from dataclasses import dataclass
 from typing import List, Optional
 
+# Optional deps
 try:
     import httpx
     _HTTPX_OK = True
@@ -19,7 +19,12 @@ try:
 except Exception:
     _TORCH_OK = False
 
-from backend.llm_interface import get_structured_reasoning_prompt, query_ollama
+from backend.llm_interface import (
+    get_structured_reasoning_prompt,
+    query_ollama,
+    get_installed_models,   # <<< fallback via CLI
+    get_default_model,      # <<< use your configured default
+)
 from backend.voice.edge_tts import synthesize_to_file
 
 @dataclass
@@ -90,24 +95,57 @@ async def _check_disk_space(min_free_mb: int = 50) -> CheckResult:
     except Exception as e:
         return CheckResult("Disk space", False, str(e))
 
-async def _check_ollama_models(expected: Optional[str] = None) -> CheckResult:
+async def _check_ollama_models(expected: Optional[str]) -> CheckResult:
+    """
+    Try HTTP API first; if unavailable or empty, fall back to CLI list
+    via llm_interface.get_installed_models().
+    """
     models: List[str] = []
-    detail = ""
+    detail_parts: List[str] = []
+
+    # HTTP route (if httpx installed)
     if _HTTPX_OK:
         try:
             async with httpx.AsyncClient(timeout=2.0) as client:
                 r = await client.get("http://127.0.0.1:11434/api/tags")
                 if r.status_code == 200:
                     data = r.json()
-                    models = [m.get("name", "") for m in data.get("models", [])]
-                    detail = f"http ok: {len(models)} models"
+                    http_models = [m.get("name", "") for m in data.get("models", [])]
+                    if http_models:
+                        models = http_models
+                        detail_parts.append(f"http ok ({len(models)} models)")
+                else:
+                    detail_parts.append(f"http status={r.status_code}")
         except Exception as e:
-            detail = f"http fail: {e}"
-    ok = len(models) > 0
+            detail_parts.append(f"http err={e}")
+
+    # Fallback to CLI if HTTP yielded nothing
+    if not models:
+        try:
+            cli_models = get_installed_models()
+            if cli_models:
+                models = cli_models
+                detail_parts.append(f"cli ok ({len(models)} models)")
+            else:
+                detail_parts.append("cli empty")
+        except Exception as e:
+            detail_parts.append(f"cli err={e}")
+
+    ok_any = len(models) > 0
+    models_str = ", ".join(models) if models else "none"
+    detail_parts.append(f"installed=[{models_str}]")
+
     if expected:
         has = any(expected in m for m in models)
-        return CheckResult("Ollama models", ok and has, detail + (f"; '{expected}' present" if has else f"; missing '{expected}'"), warn=ok and not has)
-    return CheckResult("Ollama models", ok, detail)
+        detail_parts.append(f"required='{expected}'")
+        return CheckResult(
+            "Ollama models",
+            ok_any and has,
+            "; ".join(detail_parts) + ("" if has else "; missing required"),
+            warn=ok_any and not has
+        )
+
+    return CheckResult("Ollama models", ok_any, "; ".join(detail_parts))
 
 async def _check_gpu() -> CheckResult:
     if not _TORCH_OK:
@@ -118,14 +156,17 @@ async def _check_gpu() -> CheckResult:
     except Exception as e:
         return CheckResult("GPU (PyTorch)", False, str(e), warn=True)
 
-async def run_diagnostics(reya, memory, *, expected_ollama_model: Optional[str] = "mistral") -> DiagnosticsReport:
+async def run_diagnostics(reya, memory, *, expected_ollama_model: Optional[str] = None) -> DiagnosticsReport:
+    # Auto-detect the configured default model if not provided
+    expected = expected_ollama_model or get_default_model()
+
     checks = await asyncio.gather(
         _check_personality(reya),
         _check_memory(memory),
         _check_llm(reya, memory),
         _check_tts(reya),
         _check_disk_space(50),
-        _check_ollama_models(expected_ollama_model),
+        _check_ollama_models(expected),
         _check_gpu(),
     )
     passed = sum(1 for c in checks if c.ok)
