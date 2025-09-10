@@ -1,14 +1,15 @@
-// src/components/Sidebar.tsx
+// src/components/ui/sidebar.tsx
 import { ReactNode } from "react";
-import { cn } from "@/lib/utils";
+
+
+
+export type TabKey = "chat" | "projects" | "tutor" | "kb" | "settings"| "logic" | "avatar";
 
 type Item = {
   key: TabKey;
   icon: ReactNode;
   label: string;
 };
-
-export type TabKey = "chat" | "projects" | "tutor" | "kb" | "settings";
 
 const items: Item[] = [
   { key: "chat",     icon: "💬", label: "Chat" },
@@ -33,10 +34,9 @@ export default function Sidebar({
           <button
             key={it.key}
             onClick={() => onChange(it.key)}
-            className={cn(
-              "w-full text-left px-3 py-2 rounded-lg hover:bg-zinc-800",
-              current === it.key && "bg-zinc-800 border border-zinc-700"
-            )}
+            className={`w-full text-left px-3 py-2 rounded-lg hover:bg-zinc-800 ${
+              current === it.key ? "bg-zinc-800 border border-zinc-700" : ""
+            }`}
           >
             <span className="mr-2">{it.icon}</span>
             {it.label}
