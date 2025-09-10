@@ -1,4 +1,4 @@
-// src/components/ChatPanel.tsx
+// src/components/ui/ChatPanel.tsx
 import { useState, useEffect, useRef } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -6,50 +6,33 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import SystemStatusModal from "@/components/SystemStatusModal";
 import { playReyaTTS } from "@/lib/reyaTts";
-import { useModes } from "@/state/modes";       // âœ… NEW
-
-export type Modes = {
-  multimodal: boolean;
-  liveAvatar: boolean;
-  logicEngine: boolean;
-  offlineSmart: boolean;
-};
+import { useModes } from "@/state/modes";
 
 type Message = { sender: "user" | "reya"; text: string };
 const API_BASE = "http://127.0.0.1:8000";
 
-
-
-export interface ChatPanelProps {
-  modes: Modes;
-}
-
-
-
-export default function  ChatPanel({ modes }: ChatPanelProps) {            // âœ… no props
-  
+export default function ChatPanel() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [speakEnabled, setSpeakEnabled] = useState(true);
   const [lastAudioUrl, setLastAudioUrl] = useState<string | null>(null);
 
-  const { multimodal, liveAvatar, logicEngine, offlineSmart } = useModes(); // âœ… read mode flags
+  // âœ… single source of truth for modes
+  const { modes } = useModes();
+  const { multimodal, liveAvatar, logicEngine, offlineSmart } = modes;
 
   const abortRef = useRef<AbortController | null>(null);
   const assistantIndexRef = useRef<number | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
-  console.log("ChatPanel modes:", modes);
-  
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isLoading]);
 
-
-  
-  // Stream assistant text and return final accumulated text
+  // Stream assistant text and return the final string
   const streamText = async (userText: string): Promise<string> => {
+    // append user then empty assistant message
     setMessages((prev) => [...prev, { sender: "user", text: userText }]);
     setMessages((prev) => {
       const idx = prev.length;
@@ -60,15 +43,9 @@ export default function  ChatPanel({ modes }: ChatPanelProps) {            // âœ
     const controller = new AbortController();
     abortRef.current = controller;
 
-    // âœ… include modes in the request payload
     const payload = {
       message: userText,
-      modes: {
-        multimodal,
-        liveAvatar,      // mainly for UI, still send for completeness
-        logicEngine,
-        offlineSmart,
-      },
+      modes: { multimodal, liveAvatar, logicEngine, offlineSmart },
     };
 
     const response = await fetch(`${API_BASE}/chat`, {
@@ -91,7 +68,9 @@ export default function  ChatPanel({ modes }: ChatPanelProps) {            // âœ
 
       const idx = assistantIndexRef.current;
       if (idx !== null) {
-        setMessages((prev) => prev.map((m, i) => (i === idx ? { ...m, text: accumulated } : m)));
+        setMessages((prev) =>
+          prev.map((m, i) => (i === idx ? { ...m, text: accumulated } : m))
+        );
       }
     }
     return accumulated.trim();
@@ -107,20 +86,25 @@ export default function  ChatPanel({ modes }: ChatPanelProps) {            // âœ
     try {
       const finalText = await streamText(userText);
 
-      // Speak exactly the text that was displayed (no second /chat call)
+      // speak exactly what we displayed
       if (speakEnabled && finalText) {
         const audio = await playReyaTTS(finalText); // posts to /tts
         if (audio?.src) setLastAudioUrl(audio.src);
       }
     } catch (err) {
       console.error("Chat error:", err);
-      setMessages((prev) => [...prev, { sender: "reya", text: "âš ï¸ Something went wrong." }]);
+      setMessages((prev) => [
+        ...prev,
+        { sender: "reya", text: "âš ï¸ Something went wrong." },
+      ]);
     } finally {
       setIsLoading(false);
     }
   };
 
-  useEffect(() => () => abortRef.current?.abort(), []);
+  useEffect(() => {
+    return () => abortRef.current?.abort();
+  }, []);
 
   return (
     <div className="flex flex-col h-full">
@@ -137,7 +121,10 @@ export default function  ChatPanel({ modes }: ChatPanelProps) {            // âœ
           <Button
             variant="secondary"
             onClick={async () => {
-              try { const audio = new Audio(lastAudioUrl); await audio.play(); } catch {}
+              try {
+                const audio = new Audio(lastAudioUrl);
+                await audio.play();
+              } catch {}
             }}
             title="Play last reply audio"
           >
@@ -153,7 +140,8 @@ export default function  ChatPanel({ modes }: ChatPanelProps) {            // âœ
           <Card key={idx} className="bg-gray-800">
             <CardContent>
               <p>
-                <strong>{msg.sender === "user" ? "You" : "REYA"}</strong>: {msg.text}
+                <strong>{msg.sender === "user" ? "You" : "REYA"}</strong>:{" "}
+                {msg.text}
               </p>
             </CardContent>
           </Card>
@@ -161,7 +149,10 @@ export default function  ChatPanel({ modes }: ChatPanelProps) {            // âœ
         {isLoading && (
           <Card className="bg-gray-800">
             <CardContent>
-              <p><strong>REYA</strong>: <span className="animate-pulse">...</span></p>
+              <p>
+                <strong>REYA</strong>:{" "}
+                <span className="animate-pulse">...</span>
+              </p>
             </CardContent>
           </Card>
         )}

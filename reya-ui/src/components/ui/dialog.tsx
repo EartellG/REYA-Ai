@@ -5,7 +5,10 @@ export const Dialog = DialogPrimitive.Root;
 export const DialogTrigger = DialogPrimitive.Trigger;
 export const DialogClose = DialogPrimitive.Close;
 
-export function DialogContent({ className = "", children }: React.PropsWithChildren<{ className?: string }>) {
+export function DialogContent({
+  className = "",
+  children,
+}: React.PropsWithChildren<{ className?: string }>) {
   return (
     <DialogPrimitive.Portal>
       <DialogPrimitive.Overlay className="fixed inset-0 bg-black/60" />
@@ -18,10 +21,29 @@ export function DialogContent({ className = "", children }: React.PropsWithChild
   );
 }
 
-export function DialogHeader({ className = "", children }: React.PropsWithChildren<{ className?: string }>) {
+export function DialogHeader({
+  className = "",
+  children,
+}: React.PropsWithChildren<{ className?: string }>) {
   return <div className={`mb-2 ${className}`}>{children}</div>;
 }
 
-export function DialogTitle({ className = "", children }: React.PropsWithChildren<{ className?: string }>) {
-  return <h2 className={`text-lg font-semibold ${className}`}>{children}</h2>;
+export function DialogTitle({
+  className = "",
+  children,
+}: React.PropsWithChildren<{ className?: string }>) {
+  // Screen-reader friendly title
+  return <DialogPrimitive.Title className={`text-lg font-semibold ${className}`}>{children}</DialogPrimitive.Title>;
+}
+
+export function DialogDescription({
+  className = "",
+  children,
+}: React.PropsWithChildren<{ className?: string }>) {
+  // Screen-reader friendly description (fixes Radix warning)
+  return (
+    <DialogPrimitive.Description className={`text-sm text-zinc-400 ${className}`}>
+      {children}
+    </DialogPrimitive.Description>
+  );
 }

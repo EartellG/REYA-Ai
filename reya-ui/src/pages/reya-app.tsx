@@ -2,18 +2,22 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarImage } from "@/components/ui/avatar";
-import Sidebar, { type TabKey } from "@/components/ui/sidebar"; // ⬅️ import TabKey type
+import Sidebar, { type TabKey } from "@/components/ui/sidebar";
 import ProjectsGrid from "@/components/ui/ProjectsGrid";
 import ChatPanel from "@/components/ui/ChatPanel";
 import LogicEngineTab from "@/components/ui/LogicEngineTab";
 import LiveAvatarTab from "@/components/ui/LiveAvatarTab";
 import ErrorBoundary from "@/components/ui/ErrorBoundary";
+import { useModes } from "@/state/modes";
+import LanguageTutorPanel from "@/components/ui/LanguageTutorPanel";
+import KnowledgeBasePanel from "@/components/ui/KnowledgeBasePanel"; // ← correct path/name
 
-const TAB_KEYS = ["chat", "projects", "avatar", "logic", "settings"] as const;
-const isTabKey = (v: unknown): v is TabKey => (TAB_KEYS as readonly string[]).includes(v as string);
+// Include ALL keys your Sidebar emits
+const TAB_KEYS = ["chat", "projects", "avatar", "logic", "tutor", "kb", "settings"] as const;
+const isTabKey = (v: unknown): v is TabKey =>
+  (TAB_KEYS as readonly string[]).includes(v as string);
 
 export default function REYAApp() {
-  // ✅ constrain to TabKey & sanitize localStorage
   const [activeTab, setActiveTab] = useState<TabKey>(() => {
     const saved = localStorage.getItem("reya-active-tab");
     return isTabKey(saved) ? saved : "projects";
@@ -23,24 +27,7 @@ export default function REYAApp() {
     localStorage.setItem("reya-active-tab", activeTab);
   }, [activeTab]);
 
-  // Mode toggles
-  type Modes = {
-    multimodal: boolean;
-    liveAvatar: boolean;
-    logicEngine: boolean;
-    offlineSmart: boolean;
-  };
-
-  const [modes, setModes] = useState<Modes>({
-    multimodal: false,
-    liveAvatar: false,
-    logicEngine: false,
-    offlineSmart: false,
-  });
-
-  const toggleMode = (key: keyof Modes) => {
-    setModes((prev) => ({ ...prev, [key]: !prev[key] }));
-  };
+  const { modes, toggle } = useModes();
 
   return (
     <div className="grid grid-cols-12 min-h-screen bg-gray-950 text-white">
@@ -49,7 +36,7 @@ export default function REYAApp() {
         <Sidebar current={activeTab} onChange={setActiveTab} />
       </div>
 
-      {/* Main App Content wrapped in ErrorBoundary */}
+      {/* Main */}
       <div className="col-span-10 flex flex-col">
         <ErrorBoundary
           fallback={
@@ -67,30 +54,31 @@ export default function REYAApp() {
               </Avatar>
               <h1 className="text-xl font-semibold">REYA</h1>
             </div>
+
             <div className="flex gap-2">
               <Button
                 variant={modes.multimodal ? "default" : "outline"}
-                onClick={() => toggleMode("multimodal")}
+                onClick={() => toggle("multimodal")}
               >
-                🧠 Multimodal Mode
+                🧠 Multimodal
               </Button>
               <Button
                 variant={modes.liveAvatar ? "default" : "outline"}
-                onClick={() => toggleMode("liveAvatar")}
+                onClick={() => toggle("liveAvatar")}
               >
-                🧍 Live Avatar Mode
+                🧍 Live Avatar
               </Button>
               <Button
                 variant={modes.logicEngine ? "default" : "outline"}
-                onClick={() => toggleMode("logicEngine")}
+                onClick={() => toggle("logicEngine")}
               >
-                🧮 Logic Engine
+                🧮 Logic
               </Button>
               <Button
                 variant={modes.offlineSmart ? "default" : "outline"}
-                onClick={() => toggleMode("offlineSmart")}
+                onClick={() => toggle("offlineSmart")}
               >
-                🌐 Offline Smart Mode
+                🌐 Offline
               </Button>
             </div>
           </div>
@@ -98,9 +86,17 @@ export default function REYAApp() {
           {/* Dynamic Tab Area */}
           <div className="flex-1 overflow-y-auto">
             {activeTab === "projects" && <ProjectsGrid />}
-            {activeTab === "chat" && <ChatPanel modes={modes} key="chat-panel" />}
+
+            {activeTab === "chat" && <ChatPanel />}
+
             {activeTab === "avatar" && <LiveAvatarTab />}
+
             {activeTab === "logic" && <LogicEngineTab />}
+
+            {activeTab === "tutor" && <LanguageTutorPanel />}
+
+            {activeTab === "kb" && <KnowledgeBasePanel />}
+
             {activeTab === "settings" && (
               <div className="p-6">
                 <h2 className="text-2xl font-bold mb-2">Settings</h2>
