@@ -30,13 +30,18 @@ class ContextualMemory:
         self.history = self._load_memory()
         self._ensure_memory_structure()
 
-    
-    def get_context(self) -> str:
-        recent = self.history["conversations"][-5:] if len(self.history["conversations"]) >= 5 else self.history["conversations"]
-        context_string = "\n".join([f"User: {entry['user_input']}\nAssistant: {entry['assistant_response']}" for entry in recent])
-        return context_string
+    # keep this for backward-compat (some code calls update_context)
+    def update_context(self, *args, **kwargs):
+        return self.remember(*args, **kwargs)
 
-
+    # ✅ Return a LIST OF DICTS (what llm_interface expects)
+    def get_context(self) -> List[Dict[str, str]]:
+        """
+        Return the last 5 conversation turns as a list of:
+        { "user_input": str, "assistant_response": str, ... }
+        """
+        conversations = self.history.get("conversations", [])
+        return conversations[-5:]
 
     def _ensure_memory_structure(self):
         if "conversations" not in self.history:
@@ -50,13 +55,14 @@ class ContextualMemory:
         if "language_progress" not in self.history:
             self.history["language_progress"] = {
                 "Japanese": {"vocab_known": [], "lessons_completed": [], "daily_streak": 0},
-                "Mandarin": {"vocab_known": [], "lessons_completed": [], "daily_streak": 0}
+                "Mandarin": {"vocab_known": [], "lessons_completed": [], "daily_streak": 0},
             }
 
+    # ✅ Safer UTF-8 load, creates directory if missing
     def _load_memory(self) -> Dict:
         try:
             if os.path.exists(self.memory_file):
-                with open(self.memory_file, 'r') as f:
+                with open(self.memory_file, "r", encoding="utf-8") as f:
                     return json.load(f)
             os.makedirs(os.path.dirname(self.memory_file), exist_ok=True)
             return {}
@@ -64,27 +70,40 @@ class ContextualMemory:
             print(f"Error loading memory: {e}")
             return {}
 
+    # ✅ UTF-8 save; keep non-ASCII; pretty
     def save(self):
         try:
-            with open(self.memory_file, 'w') as f:
-                json.dump(self.history, f, indent=2)
+            with open(self.memory_file, "w", encoding="utf-8") as f:
+                json.dump(self.history, f, indent=2, ensure_ascii=False)
         except Exception as e:
             print(f"Error saving memory: {e}")
 
     def remember(self, user_input, assistant_response):
-        self.history["conversations"].append({
-            "user_input": user_input,
-            "assistant_response": assistant_response,
-            "timestamp": datetime.datetime.now().isoformat(),
-            "context": {}
-        })
+        self.history["conversations"].append(
+            {
+                "user_input": user_input,
+                "assistant_response": assistant_response,
+                "timestamp": datetime.datetime.now().isoformat(),
+                "context": {},
+            }
+        )
         self.save()
+
+    # 🔁 Alias for callers that use add_conversation()
+    def add_conversation(self, user_input, assistant_response):
+        return self.remember(user_input, assistant_response)
 
     def get_recent_conversations(self, count=5):
         return self.history["conversations"][-count:]
 
-    # ✅ NEW METHODS for language learning
+    # ✅ NEW METHODS for language learning (with guards)
+    def _ensure_language(self, language: str):
+        lp = self.history.setdefault("language_progress", {})
+        if language not in lp:
+            lp[language] = {"vocab_known": [], "lessons_completed": [], "daily_streak": 0}
+
     def add_vocab(self, language: str, words: List[str]):
+        self._ensure_language(language)
         known = self.history["language_progress"][language]["vocab_known"]
         for word in words:
             if word not in known:
@@ -92,22 +111,37 @@ class ContextualMemory:
         self.save()
 
     def get_vocab(self, language: str) -> List[str]:
+        self._ensure_language(language)
         return self.history["language_progress"][language]["vocab_known"]
 
     def mark_lesson_completed(self, language: str, lesson_id: str):
+        self._ensure_language(language)
         lessons = self.history["language_progress"][language]["lessons_completed"]
         if lesson_id not in lessons:
             lessons.append(lesson_id)
         self.save()
 
     def increment_streak(self, language: str):
+        self._ensure_language(language)
         self.history["language_progress"][language]["daily_streak"] += 1
         self.save()
 
     def get_streak(self, language: str) -> int:
+        self._ensure_language(language)
         return self.history["language_progress"][language]["daily_streak"]
 
-ContextualMemory.update_context = ContextualMemory.remember
+    # 🧭 Handy snapshot for “Resume where I left off” banner
+    def get_language_snapshot(self, language: str) -> Dict[str, Any]:
+        self._ensure_language(language)
+        lp = self.history["language_progress"][language]
+        return {
+            "language": language,
+            "vocab_count": len(lp["vocab_known"]),
+            "lessons_completed": list(lp["lessons_completed"]),
+            "daily_streak": lp["daily_streak"],
+            "last_conversation": (self.history["conversations"][-1] if self.history["conversations"] else None),
+        }
+
 
 
 
@@ -295,189 +329,268 @@ class TaskAutomation:
 # 4. Personalized Knowledge Base
 # -------------------------------------------------
 
+# -------------------------------------------------
+# 4. Personalized Knowledge Base  (UPDATED)
+# -------------------------------------------------
+
 class PersonalizedKnowledgeBase:
     """
     Manages a customized database of information relevant 
     to the user's interests, work, and daily life.
     """
+
+    DEFAULT_CATEGORIES = [
+        "documents",
+        "interests",
+        "work",
+        "personal",
+        # ✅ New categories:
+        "quantum_physics",
+        "deep_sea",
+    ]
     
     def __init__(self, knowledge_dir: str = "knowledge"):
         """Initialize the personalized knowledge base."""
         self.knowledge_dir = knowledge_dir
         self.indices = {}
         self._ensure_knowledge_structure()
-        
+
+    # ---------- structure / housekeeping ----------
     def _ensure_knowledge_structure(self):
-        """Ensure knowledge directory and files exist."""
+        """Ensure knowledge directory and default category index files exist."""
         os.makedirs(self.knowledge_dir, exist_ok=True)
-        
-        # Create indices for different knowledge categories
-        categories = ["documents", "interests", "work", "personal"]
-        for category in categories:
-            index_path = os.path.join(self.knowledge_dir, f"{category}_index.json")
-            if os.path.exists(index_path):
-                with open(index_path, 'r') as f:
+
+        # Ensure all default categories have an index
+        for category in self.DEFAULT_CATEGORIES:
+            self._ensure_category_index(category)
+
+    def _ensure_category_index(self, category: str):
+        """Create an index file for a category if missing."""
+        index_path = os.path.join(self.knowledge_dir, f"{category}_index.json")
+        if os.path.exists(index_path):
+            try:
+                with open(index_path, 'r', encoding="utf-8") as f:
                     self.indices[category] = json.load(f)
-            else:
+            except Exception:
+                # Corrupt or unreadable index → recreate
                 self.indices[category] = {"items": []}
                 self._save_index(category)
-    
+        else:
+            self.indices[category] = {"items": []}
+            self._save_index(category)
+
     def _save_index(self, category: str):
         """Save an index to disk."""
         index_path = os.path.join(self.knowledge_dir, f"{category}_index.json")
-        with open(index_path, 'w') as f:
-            json.dump(self.indices[category], f, indent=2)
-    
-    def add_knowledge_item(self, category: str, title: str, content: str, 
-                         source: str = None, tags: List[str] = None):
-        """Add an item to the knowledge base."""
+        with open(index_path, 'w', encoding="utf-8") as f:
+            json.dump(self.indices[category], f, indent=2, ensure_ascii=False)
+
+    # ---------- CRUD ----------
+    def add_knowledge_item(
+        self,
+        category: str,
+        title: str,
+        content: str,
+        source: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        created_at: Optional[str] = None,
+        updated_at: Optional[str] = None,
+    ) -> str:
+        """Add an item to the knowledge base and persist content to file."""
         if category not in self.indices:
-            self.indices[category] = {"items": []}
-            
+            # If caller passes a new category, create its index on-the-fly
+            self._ensure_category_index(category)
+
         item_id = f"{category}_{len(self.indices[category]['items'])}"
-        timestamp = datetime.datetime.now().isoformat()
-        
-        # Create knowledge item
-        item = {
+        now_iso = datetime.datetime.now().isoformat()
+        meta = {
             "id": item_id,
             "title": title,
             "source": source,
-            "tags": tags or [],
-            "created_at": timestamp,
-            "updated_at": timestamp
+            "tags": (tags or []),
+            "created_at": created_at or now_iso,
+            "updated_at": updated_at or now_iso,
         }
-        
-        # Save the content to a separate file
+
+        # Write content to separate file (UTF-8)
         content_path = os.path.join(self.knowledge_dir, f"{item_id}.txt")
-        with open(content_path, 'w') as f:
+        with open(content_path, 'w', encoding="utf-8") as f:
             f.write(content)
-            
-        # Add to index
-        self.indices[category]["items"].append(item)
+
+        # Update index
+        self.indices[category]["items"].append(meta)
         self._save_index(category)
-        
-        logger.info(f"Added knowledge item: {title} in {category}")
+
+        logger.info(f"[KB] Added item '{title}' to '{category}' → {item_id}")
         return item_id
-    
-    def update_knowledge_item(self, item_id: str, title: str = None, 
-                            content: str = None, tags: List[str] = None):
-        """Update an existing knowledge item."""
-        # Extract category from item_id
+
+    def update_knowledge_item(
+        self,
+        item_id: str,
+        title: Optional[str] = None,
+        content: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+    ) -> bool:
+        """Update item metadata and/or content."""
         if "_" not in item_id:
-            logger.error(f"Invalid item_id format: {item_id}")
+            logger.error(f"[KB] Invalid item_id: {item_id}")
             return False
-            
-        category = item_id.split("_")[0]
+
+        category = item_id.split("_", 1)[0]
         if category not in self.indices:
-            logger.error(f"Category not found: {category}")
+            logger.error(f"[KB] Category not found: {category}")
             return False
-            
-        # Find the item
+
         for item in self.indices[category]["items"]:
             if item["id"] == item_id:
-                if title:
+                if title is not None:
                     item["title"] = title
-                if tags:
+                if tags is not None:
                     item["tags"] = tags
                 item["updated_at"] = datetime.datetime.now().isoformat()
-                
-                # Update content if provided
-                if content:
+
+                if content is not None:
                     content_path = os.path.join(self.knowledge_dir, f"{item_id}.txt")
-                    with open(content_path, 'w') as f:
+                    with open(content_path, 'w', encoding="utf-8") as f:
                         f.write(content)
-                
+
                 self._save_index(category)
-                logger.info(f"Updated knowledge item: {item_id}")
+                logger.info(f"[KB] Updated item {item_id}")
                 return True
-                
-        logger.error(f"Item not found: {item_id}")
+
+        logger.error(f"[KB] Item not found: {item_id}")
         return False
-    
-    def get_knowledge_item(self, item_id: str) -> Dict:
-        """Retrieve a knowledge item by ID."""
+
+    def get_knowledge_item(self, item_id: str) -> Optional[Dict]:
+        """Retrieve a full item (metadata + content)."""
         if "_" not in item_id:
-            logger.error(f"Invalid item_id format: {item_id}")
+            logger.error(f"[KB] Invalid item_id: {item_id}")
             return None
-            
-        category = item_id.split("_")[0]
+
+        category = item_id.split("_", 1)[0]
         if category not in self.indices:
-            logger.error(f"Category not found: {category}")
             return None
-        
-        # Find item metadata in index
-        item_metadata = None
-        for item in self.indices[category]["items"]:
-            if item["id"] == item_id:
-                item_metadata = item
-                break
-                
-        if not item_metadata:
-            logger.error(f"Item not found: {item_id}")
+
+        meta = next((i for i in self.indices[category]["items"] if i["id"] == item_id), None)
+        if not meta:
             return None
-            
-        # Get content
+
         content_path = os.path.join(self.knowledge_dir, f"{item_id}.txt")
         try:
-            with open(content_path, 'r') as f:
+            with open(content_path, 'r', encoding="utf-8") as f:
                 content = f.read()
         except FileNotFoundError:
-            logger.error(f"Content file not found for {item_id}")
             content = ""
-            
-        # Return combined item
-        result = item_metadata.copy()
-        result["content"] = content
-        return result
-    
-    def search_knowledge(self, query: str, categories: List[str] = None) -> List[Dict]:
-        """Search knowledge base for items matching the query."""
-        if not categories:
-            categories = list(self.indices.keys())
-            
-        results = []
-        for category in categories:
-            if category not in self.indices:
+
+        out = dict(meta)
+        out["content"] = content
+        return out
+
+    def search_knowledge(self, query: str, categories: Optional[List[str]] = None) -> List[Dict]:
+        """Naive search over titles/tags and file contents (UTF-8)."""
+        cats = categories or list(self.indices.keys())
+        q = (query or "").strip().lower()
+        if not q:
+            return []
+
+        results: List[Dict] = []
+        for cat in cats:
+            if cat not in self.indices:
                 continue
-                
-            for item in self.indices[category]["items"]:
-                # Check in metadata
-                if (query.lower() in item["title"].lower() or
-                    any(query.lower() in tag.lower() for tag in item["tags"])):
-                    
-                    # Get a preview of content
-                    content_path = os.path.join(self.knowledge_dir, f"{item['id']}.txt")
-                    try:
-                        with open(content_path, 'r') as f:
-                            content = f.read(200)  # Get first 200 chars for preview
-                    except FileNotFoundError:
-                        content = ""
-                    
-                    result = item.copy()
-                    result["preview"] = content
-                    results.append(result)
-                    continue
-                
-                # Check in full content
+
+            for item in self.indices[cat]["items"]:
+                # Title or tags match
+                title_match = q in (item.get("title", "").lower())
+                tags_match = any(q in (t or "").lower() for t in item.get("tags", []))
+                matched = title_match or tags_match
+
                 content_path = os.path.join(self.knowledge_dir, f"{item['id']}.txt")
-                try:
-                    with open(content_path, 'r') as f:
-                        content = f.read()
-                        if query.lower() in content.lower():
-                            result = item.copy()
-                            # Find the matching context
-                            idx = content.lower().find(query.lower())
-                            start = max(0, idx - 50)
-                            end = min(len(content), idx + len(query) + 50)
-                            preview = "..." if start > 0 else ""
-                            preview += content[start:end]
-                            preview += "..." if end < len(content) else ""
-                            result["preview"] = preview
-                            results.append(result)
-                except FileNotFoundError:
-                    pass
-                    
+                content_preview = ""
+                if not matched:
+                    try:
+                        with open(content_path, 'r', encoding="utf-8") as f:
+                            content = f.read()
+                        pos = content.lower().find(q)
+                        if pos >= 0:
+                            matched = True
+                            start = max(0, pos - 60)
+                            end = min(len(content), pos + len(q) + 60)
+                            content_preview = ("..." if start > 0 else "") + content[start:end] + ("..." if end < len(content) else "")
+                    except FileNotFoundError:
+                        pass
+
+                if matched:
+                    results.append({
+                        **item,
+                        "category": cat,
+                        "preview": content_preview,
+                    })
+
         return results
+
+    # ---------- NEW: bulk import helpers ----------
+    def add_bulk_notes(self, category: str, notes: List[Dict[str, Any]]) -> List[str]:
+        """
+        Bulk-import in-memory notes.
+        Each note dict should have: {title: str, content: str, tags?: List[str], source?: str}
+        Returns list of item_ids.
+        """
+        ids: List[str] = []
+        for note in notes:
+            item_id = self.add_knowledge_item(
+                category=category,
+                title=note.get("title", "Untitled"),
+                content=note.get("content", ""),
+                source=note.get("source"),
+                tags=note.get("tags") or [],
+            )
+            ids.append(item_id)
+        return ids
+
+    def bulk_import_from_folder(
+        self,
+        folder_path: str,
+        category: str,
+        *,
+        allowed_exts: Tuple[str, ...] = (".txt", ".md"),
+        tag_from_folder: bool = True,
+    ) -> List[str]:
+        """
+        Bulk-import text/markdown files from a folder into a category.
+        - allowed_exts controls which files are picked up.
+        - If tag_from_folder=True, adds a tag with the folder name.
+        Returns list of item_ids created.
+        """
+        if not os.path.isdir(folder_path):
+            logger.error(f"[KB] Folder not found: {folder_path}")
+            return []
+
+        tag = os.path.basename(os.path.normpath(folder_path)) if tag_from_folder else None
+        created: List[str] = []
+
+        for name in sorted(os.listdir(folder_path)):
+            if not name.lower().endswith(allowed_exts):
+                continue
+            file_path = os.path.join(folder_path, name)
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+                title = os.path.splitext(name)[0]
+                tags = [tag] if tag else []
+                item_id = self.add_knowledge_item(
+                    category=category,
+                    title=title,
+                    content=content,
+                    tags=tags,
+                    source=file_path,
+                )
+                created.append(item_id)
+            except Exception as e:
+                logger.error(f"[KB] Failed to import '{file_path}': {e}")
+
+        logger.info(f"[KB] Imported {len(created)} notes into '{category}' from '{folder_path}'")
+        return created
+
 
 # -------------------------------------------------
 # 5. Smart Device Integration
@@ -931,34 +1044,33 @@ class PrivacyControls:
             logger.warning(f"Unknown data type for retention check: {data_type}")
             return False
     
-    def clean_expired_data(self, memory: ContextualMemory):
+    def clean_expired_data(self, memory: "ContextualMemory"):
         """Clean expired data according to retention settings."""
-        # Check conversation retention setting
+    # Use memory.history (not memory.memory)
+        hist = memory.history
+
+    # Check conversation retention
         days = self.settings["data_retention"]["conversation_history_days"]
         if days <= 0:
-            # Delete all conversations
-            memory.memory["conversations"] = []
+            hist["conversations"] = []
         else:
-            # Delete conversations older than retention period
             cutoff = datetime.datetime.now() - datetime.timedelta(days=days)
             cutoff_str = cutoff.isoformat()
-            
-            memory.memory["conversations"] = [
-                conv for conv in memory.memory["conversations"]
-                if conv["timestamp"] > cutoff_str
-            ]
-        
-        # Check preference retention
+            hist["conversations"] = [
+            conv for conv in hist.get("conversations", [])
+            if conv.get("timestamp", "") > cutoff_str ]
+
+    # Check preference retention
         if not self.settings["data_retention"]["keep_user_preferences"]:
-            memory.memory["preferences"] = {}
-            
-        # Check entity retention
+            hist["preferences"] = {}
+
+    # Check entity retention
         if not self.settings["data_retention"]["keep_learned_entities"]:
-            memory.memory["entities"] = {}
-            
-        # Save cleaned memory
+            hist["entities"] = {}
+
+    # Save back to disk
         memory.save()
-        logger.info("Cleaned expired data according to privacy settings")
+    logger.info("Cleaned expired data according to privacy settings")
 
 # -------------------------------------------------
 # 8. Voice Interface Integration 
@@ -1262,56 +1374,66 @@ class REYA_AI:
     
     def process_input(self, user_input: str, input_type: str = "text") -> Dict:
         """
-        Process user input and generate appropriate response
-        with all the advanced features.
+        Process user input and generate an appropriate response
+        using available advanced features. This method does NOT
+        call the LLM directly (your FastAPI /chat route does that);
+        it focuses on orchestration, memory, emotions, and helpers.
         """
-        response = {"success": True}
-        
+        out: Dict[str, Any] = {"success": True, "input_type": input_type}
+
         try:
-            # Process input based on type
-            if input_type == "text":
-                # Basic text response
-                response["text_response"] = f"Processed: {user_input}"
-                
-                # Analyze emotions
-                emotions = self.emotions.analyze_emotion(user_input)
-                response["detected_emotions"] = emotions
-                
-                # Add to memory
-                self.memory.add_conversation(user_input, response["text_response"])
-                
-                # Check for tasks that could be automated
-                # In real implementation, would have NLP to detect task requests
-                
-                # Adapt response based on emotions
-                response["text_response"] = self.emotions.adapt_response(
-                    response["text_response"], emotions)
-                
-            elif input_type == "voice":
-                # Process voice through voice interface
-                speech_result = self.voice.recognize_speech()
-                if speech_result["success"]:
-                    # Process the recognized text
-                    text_response = self.process_input(speech_result["text"], "text")
-                    response.update(text_response)
-                else:
-                    response["success"] = False
-                    response["error"] = speech_result["error"]
-                    
+            if input_type == "voice":
+                # 1) ASR -> text
+                asr = self.voice.recognize_speech()
+                if not asr.get("success"):
+                    return {"success": False, "error": asr.get("error", "ASR failed")}
+                transcript = asr.get("text", "").strip()
+                out["transcript"] = transcript
+
+                # 2) Reuse text flow
+                return self.process_input(transcript, input_type="text")
+
             elif input_type == "image":
-                # In real implementation, would receive image data
-                response["text_response"] = "Image processing not fully implemented yet"
-                
+                # Placeholder: you can extend with real CV/OCR later
+                out["text_response"] = "Image processing not fully implemented yet"
+                # Memory write (log that an image interaction occurred)
+                self.memory.remember(
+                    user_input="[image]",
+                    assistant_response=out["text_response"]
+                )
+                return out
+
+            elif input_type == "text":
+                # --- Emotion analysis & tone adaptation ---
+                emotions = self.emotions.analyze_emotion(user_input)
+                dominant = self.emotions.get_dominant_emotion(emotions)
+                out["detected_emotions"] = emotions
+                out["dominant_emotion"] = dominant
+
+                # You can replace this canned reply with your LLM’s reply
+                base_reply = f"Processed: {user_input}"
+
+                # Optional proactive suggestion (lightweight heuristic)
+                suggestion = self.proactive.suggest(user_input)
+                if suggestion:
+                    out["proactive_suggestion"] = suggestion
+
+                # Adapt tone
+                adapted = self.emotions.adapt_response(base_reply, emotions)
+                out["text_response"] = adapted
+
+                # --- Persist to contextual memory (✅ correct method) ---
+                self.memory.remember(user_input, adapted)
+
+                return out
+
             else:
-                response["success"] = False
-                response["error"] = f"Unsupported input type: {input_type}"
-                
+                return {"success": False, "error": f"Unsupported input type: {input_type}"}
+
         except Exception as e:
-            logger.error(f"Error processing input: {e}")
-            response["success"] = False
-            response["error"] = str(e)
-            
-        return response
+            logger.error(f"Error processing input: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
+
     
     def start(self):
         """Start all background services."""

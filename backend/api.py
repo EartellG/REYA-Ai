@@ -6,31 +6,32 @@ import traceback
 import importlib
 from typing import Optional
 
-from fastapi import FastAPI, Request, Query
+from fastapi import FastAPI, Request, Query, Body
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi import Body
 
 from backend.reya_personality import ReyaPersonality, TRAITS, MANNERISMS, STYLES
 from backend.llm_interface import (
-    get_response,  # legacy path if you still use it
+    get_response,  # legacy high-level helper
     get_structured_reasoning_prompt,
     query_ollama,
 )
 from backend.features.advanced_features import ContextualMemory
+from backend.features.advanced_features import PersonalizedKnowledgeBase
+from backend.features.language_tutor import LanguageTutor
 from backend.intent import recognize_intent
 from backend.diagnostics import run_diagnostics
-from backend.voice.edge_tts import synthesize_to_static_url
-from backend.features.stackoverflow_search import search_stackoverflow
-from backend.features.youtube_search import get_youtube_metadata
-from backend.features.reddit_search import search_reddit
-from backend.features.web_search import search_web
 from backend.voice.edge_tts import (
     speak_with_voice_style,
-    synthesize_to_static_url,
+    synthesize_to_static_url,   # ✅ single import
 )
+# Optional: other features (kept for future use)
+# from backend.features.stackoverflow_search import search_stackoverflow
+# from backend.features.youtube_search import get_youtube_metadata
+# from backend.features.reddit_search import search_reddit
+# from backend.features.web_search import search_web
 
 # -----------------------
 # App & CORS
@@ -38,13 +39,11 @@ from backend.voice.edge_tts import (
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],   # consider restricting in production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
 # -----------------------
 # Static files for audio
 # -----------------------
@@ -57,11 +56,10 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 reya = ReyaPersonality(
     traits=[TRAITS["stoic"], TRAITS["playful"]],
     mannerisms=[MANNERISMS["sassy"], MANNERISMS["meta_awareness"]],
-    style=STYLES["oracle"],  # fine to keep this for text vibe
-    voice="en-GB-MiaNeural",  # <-- your voice
-    preset={"rate": "+12%", "pitch": "-5Hz", "volume": "+0%"}  # <-- your preset
+    style=STYLES["oracle"],                 # text vibe
+    voice="en-GB-MiaNeural",                # TTS voice
+    preset={"rate": "+12%", "pitch": "-5Hz", "volume": "+0%"},
 )
-
 memory = ContextualMemory()
 
 # -----------------------
@@ -77,7 +75,7 @@ class ChatRequest(BaseModel):
     message: str
 
 # -----------------------
-# Health
+# Health / Debug
 # -----------------------
 @app.get("/ping")
 def ping():
@@ -108,8 +106,13 @@ def debug_info():
         info["edge_tts_import_error"] = repr(e)
         info["edge_tts_traceback"] = traceback.format_exc(limit=2)
     return info
+
+@app.on_event("startup")
+async def _boot_banner():
+    print("[REYA] Booting API… voice:", getattr(reya, "voice", None))
+
 # -----------------------
-# TTS (fire-and-forget) - Local server playback (optional)
+# TTS (fire-and-forget local playback)
 # -----------------------
 @app.post("/speak")
 async def speak_endpoint(data: SpeakRequest):
@@ -119,12 +122,8 @@ async def speak_endpoint(data: SpeakRequest):
     asyncio.create_task(asyncio.to_thread(speak_with_voice_style, text, reya))
     return {"ok": True}
 
-@app.on_event("startup")
-async def _boot_banner():
-    print("[REYA] Booting API… voice:", getattr(reya, "voice", None))
-
 # -----------------------
-# Chat (streaming by default; TTS JSON mode with ?speak=true)
+# Chat (streaming by default; optional speak=true JSON mode)
 # -----------------------
 @app.post("/chat")
 async def chat_endpoint(request: Request, speak: bool = Query(False)):
@@ -136,7 +135,8 @@ async def chat_endpoint(request: Request, speak: bool = Query(False)):
 
     # --- Diagnostics shortcut ---
     if "run diagnostics" in user_message.lower():
-        report = await run_diagnostics(reya, memory, expected_ollama_model="mistral")
+        # Let diagnostics auto-detect required model (no hardcode)
+        report = await run_diagnostics(reya, memory)
         text = report.as_text()
 
         async def stream_report():
@@ -144,13 +144,14 @@ async def chat_endpoint(request: Request, speak: bool = Query(False)):
                 yield line + "\n"
                 await asyncio.sleep(0.03)
 
-        # NOTE: this return MUST be OUTSIDE the async generator above
         return StreamingResponse(stream_report(), media_type="text/plain")
 
     # --- Normal REYA flow ---
     context = memory.get_context()
     prompt = get_structured_reasoning_prompt(user_message, context, reya=reya)
-    full_response: str = query_ollama(prompt)  # sync call returns a string
+
+    # Offload Ollama call to a thread to avoid blocking event loop
+    full_response: str = await asyncio.to_thread(query_ollama, prompt)
     memory.remember(user_message, full_response)
 
     if speak:
@@ -171,16 +172,17 @@ async def chat_endpoint(request: Request, speak: bool = Query(False)):
     return StreamingResponse(generate_stream(), media_type="text/plain")
 
 # -----------------------
-# Existing utility routes (kept)
+# Legacy / utility endpoints
 # -----------------------
 @app.post("/reya/respond")
 def respond_endpoint(data: MessageRequest):
     user_input = data.message
-    intent = recognize_intent(user_input)
+    intent = recognize_intent(user_input)  # currently unused but kept
     context = memory.get_context()
-    response = get_response(user_input, context)
+    # Fix arg order to match llm_interface.get_response(user_input, reya, history)
+    response = get_response(user_input, reya, context)
     memory.remember(user_input, response)
-    return {"response": response}
+    return {"response": response, "intent": intent}
 
 @app.post("/reya/logic")
 def logic_layer(data: MessageRequest):
@@ -193,6 +195,9 @@ def logic_layer(data: MessageRequest):
 def multimodal_project_handler(data: MessageRequest):
     return {"response": f"Multimodal handler received: {data.message}"}
 
+# -----------------------
+# Pure TTS for frontend
+# -----------------------
 @app.post("/tts")
 async def tts_endpoint(payload: dict = Body(...)):
     text = (payload.get("text") or "").strip()
@@ -201,13 +206,64 @@ async def tts_endpoint(payload: dict = Body(...)):
     url = await synthesize_to_static_url(text, reya)
     return {"ok": True, "audio_url": url}
 
+# -----------------------
+# Diagnostics JSON for UI card
+# -----------------------
 @app.get("/diagnostics")
 async def diagnostics_json():
- report = await run_diagnostics(reya, memory, expected_ollama_model="mistral")
- return {
-"summary": report.summary,
-"checks": [
-{"name": c.name, "ok": c.ok, "detail": c.detail, "warn": getattr(c, "warn", False)}
-for c in report.checks
-],
-}
+    report = await run_diagnostics(reya, memory)  # auto model detect
+    return {
+        "summary": report.summary,
+        "checks": [
+            {"name": c.name, "ok": c.ok, "detail": c.detail, "warn": getattr(c, "warn", False)}
+            for c in report.checks
+        ],
+    }
+
+##Personalized Knowledge
+kb = PersonalizedKnowledgeBase()
+@app.post("/kb/import")
+async def kb_import(payload: dict):
+    category = payload.get("category")
+    notes = payload.get("notes")  # list of {title, content, tags?, source?}
+    if not category or not isinstance(notes, list):
+        return JSONResponse({"ok": False, "error": "category and notes[] required"}, status_code=400)
+    ids = kb.add_bulk_notes(category, notes)
+    return {"ok": True, "count": len(ids), "ids": ids}
+
+
+##Language Tutor
+tutor = LanguageTutor(memory)
+@app.get("/tutor/progress")
+def tutor_progress(language: str = "Japanese"):
+    return tutor.get_progress(language)
+
+@app.post("/tutor/start")
+def tutor_start(payload: dict):
+    language = (payload.get("language") or "Japanese").strip()
+    level = (payload.get("level") or "beginner").strip()
+    resume = bool(payload.get("resume") or False)
+    msg = tutor.start(language, level, resume=resume)
+    return {"message": msg}
+
+@app.get("/tutor/resume")
+def tutor_resume(language: str = "Japanese"):
+    return {"message": tutor.resume(language)}
+
+@app.get("/tutor/next")
+def tutor_next(language: str = "Japanese"):
+    return {"message": tutor.next_lesson(language)}
+
+@app.get("/tutor/quiz")
+def tutor_quiz(language: str = "Japanese"):
+    q = tutor.quiz_vocabulary(language)
+    if not q:
+        return {"ok": False, "error": "No vocabulary yet."}
+    return {"ok": True, "quiz": q}
+
+@app.post("/tutor/answer")
+def tutor_answer(payload: dict):
+    quiz = payload.get("quiz")
+    ans = payload.get("answer")
+    ok, msg = tutor.check_answer(quiz or {}, ans or "")
+    return {"ok": ok, "message": msg}
