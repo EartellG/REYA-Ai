@@ -1,31 +1,46 @@
 // src/state/modes.tsx
-import { createContext, useContext, useState, ReactNode } from "react";
+import React, { createContext, useContext, useMemo, useState } from "react";
 
-type Modes = {
+export type Modes = {
   multimodal: boolean;
   liveAvatar: boolean;
   logicEngine: boolean;
   offlineSmart: boolean;
-  setModes: (m: Partial<Modes>) => void;
 };
 
-const ModesCtx = createContext<Modes | null>(null);
+type ModesCtx = {
+  modes: Modes;
+  setModes: React.Dispatch<React.SetStateAction<Modes>>;
+  toggle: (k: keyof Modes) => void;
+  enable: (k: keyof Modes) => void;
+  disable: (k: keyof Modes) => void;
+};
 
-export function ModesProvider({ children }: { children: ReactNode }) {
-  const [modes, set] = useState({
-    multimodal: true,
+const ModesContext = createContext<ModesCtx | null>(null);
+
+export function ModesProvider({ children }: { children: React.ReactNode }) {
+  const [modes, setModes] = useState<Modes>({
+    multimodal: false,
     liveAvatar: false,
-    logicEngine: true,
+    logicEngine: false,
     offlineSmart: false,
   });
-  const setModes = (m: Partial<typeof modes>) => set((prev) => ({ ...prev, ...m }));
-  return (
-    <ModesCtx.Provider value={{ ...modes, setModes }}>{children}</ModesCtx.Provider>
-  );
+
+  const value = useMemo<ModesCtx>(() => {
+    const toggle = (k: keyof Modes) =>
+      setModes((prev) => ({ ...prev, [k]: !prev[k] }));
+    const enable = (k: keyof Modes) =>
+      setModes((prev) => ({ ...prev, [k]: true }));
+    const disable = (k: keyof Modes) =>
+      setModes((prev) => ({ ...prev, [k]: false }));
+    return { modes, setModes, toggle, enable, disable };
+  }, [modes]);
+
+  return <ModesContext.Provider value={value}>{children}</ModesContext.Provider>;
 }
 
-export const useModes = () => {
-  const ctx = useContext(ModesCtx);
+export function useModes() {
+  const ctx = useContext(ModesContext);
   if (!ctx) throw new Error("useModes must be used inside ModesProvider");
   return ctx;
-};
+}

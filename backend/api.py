@@ -220,50 +220,53 @@ async def diagnostics_json():
         ],
     }
 
-##Personalized Knowledge
-kb = PersonalizedKnowledgeBase()
-@app.post("/kb/import")
-async def kb_import(payload: dict):
-    category = payload.get("category")
-    notes = payload.get("notes")  # list of {title, content, tags?, source?}
-    if not category or not isinstance(notes, list):
-        return JSONResponse({"ok": False, "error": "category and notes[] required"}, status_code=400)
-    ids = kb.add_bulk_notes(category, notes)
-    return {"ok": True, "count": len(ids), "ids": ids}
-
-
-##Language Tutor
+# ---- Language Tutor routes ----
+from backend.features.language_tutor import LanguageTutor
 tutor = LanguageTutor(memory)
-@app.get("/tutor/progress")
-def tutor_progress(language: str = "Japanese"):
-    return tutor.get_progress(language)
 
 @app.post("/tutor/start")
-def tutor_start(payload: dict):
-    language = (payload.get("language") or "Japanese").strip()
-    level = (payload.get("level") or "beginner").strip()
-    resume = bool(payload.get("resume") or False)
-    msg = tutor.start(language, level, resume=resume)
+async def tutor_start(payload: dict):
+    lang = payload.get("language", "Japanese")
+    level = payload.get("level", "beginner")
+    msg = tutor.start(lang, level)
     return {"message": msg}
 
 @app.get("/tutor/resume")
-def tutor_resume(language: str = "Japanese"):
+async def tutor_resume(language: str):
     return {"message": tutor.resume(language)}
 
 @app.get("/tutor/next")
-def tutor_next(language: str = "Japanese"):
+async def tutor_next(language: str):
     return {"message": tutor.next_lesson(language)}
 
-@app.get("/tutor/quiz")
-def tutor_quiz(language: str = "Japanese"):
-    q = tutor.quiz_vocabulary(language)
-    if not q:
-        return {"ok": False, "error": "No vocabulary yet."}
-    return {"ok": True, "quiz": q}
+@app.get("/tutor/progress")
+async def tutor_progress(language: str):
+    return tutor.get_progress(language)
 
-@app.post("/tutor/answer")
-def tutor_answer(payload: dict):
-    quiz = payload.get("quiz")
-    ans = payload.get("answer")
-    ok, msg = tutor.check_answer(quiz or {}, ans or "")
+@app.get("/tutor/quiz")
+async def tutor_quiz(language: str):
+    q = tutor.quiz_vocabulary(language)
+    if not q: 
+        return JSONResponse({"message":"no_vocab"}, status_code=404)
+    return q
+
+@app.post("/tutor/check")
+async def tutor_check(payload: dict):
+    qp = payload.get("payload", {})
+    ua = payload.get("user_answer", "")
+    ok, msg = tutor.check_answer(qp, ua)
     return {"ok": ok, "message": msg}
+
+# ---- Knowledge Base routes ----
+from backend.features.advanced_features import PersonalizedKnowledgeBase
+kb = PersonalizedKnowledgeBase()
+
+@app.get("/kb/list")
+async def kb_list(category: str):
+    # return just title/tags/preview
+    items = kb.search_knowledge("", [category])
+    return items
+
+@app.get("/kb/search")
+async def kb_search(query: str, category: str):
+    return kb.search_knowledge(query, [category])
