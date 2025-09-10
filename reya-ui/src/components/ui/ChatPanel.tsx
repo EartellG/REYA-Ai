@@ -1,3 +1,4 @@
+// src/components/ChatPanel.tsx
 import { useState, useEffect, useRef } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -5,26 +6,19 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import SystemStatusModal from "@/components/SystemStatusModal";
 import { playReyaTTS } from "@/lib/reyaTts";
-
-interface ChatPanelProps {
-  modes: {
-    multimodal: boolean;
-    liveAvatar: boolean;
-    logicEngine: boolean;
-    offlineSmart: boolean;
-  };
-}
+import { useModes } from "@/state/modes";       // ✅ NEW
 
 type Message = { sender: "user" | "reya"; text: string };
-
 const API_BASE = "http://127.0.0.1:8000";
 
-export default function ChatPanel({ modes }: ChatPanelProps) {
+export default function ChatPanel() {            // ✅ no props
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [speakEnabled, setSpeakEnabled] = useState(true);
   const [lastAudioUrl, setLastAudioUrl] = useState<string | null>(null);
+
+  const { multimodal, liveAvatar, logicEngine, offlineSmart } = useModes(); // ✅ read mode flags
 
   const abortRef = useRef<AbortController | null>(null);
   const assistantIndexRef = useRef<number | null>(null);
@@ -34,11 +28,9 @@ export default function ChatPanel({ modes }: ChatPanelProps) {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isLoading]);
 
-  // Stream the assistant text and return the final accumulated string
+  // Stream assistant text and return final accumulated text
   const streamText = async (userText: string): Promise<string> => {
-    // append user message
     setMessages((prev) => [...prev, { sender: "user", text: userText }]);
-    // append empty assistant message and remember its index
     setMessages((prev) => {
       const idx = prev.length;
       assistantIndexRef.current = idx;
@@ -48,15 +40,24 @@ export default function ChatPanel({ modes }: ChatPanelProps) {
     const controller = new AbortController();
     abortRef.current = controller;
 
+    // ✅ include modes in the request payload
+    const payload = {
+      message: userText,
+      modes: {
+        multimodal,
+        liveAvatar,      // mainly for UI, still send for completeness
+        logicEngine,
+        offlineSmart,
+      },
+    };
+
     const response = await fetch(`${API_BASE}/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: userText }),
+      body: JSON.stringify(payload),
       signal: controller.signal,
     });
-    if (!response.ok || !response.body) {
-      throw new Error("Stream failed");
-    }
+    if (!response.ok || !response.body) throw new Error("Stream failed");
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder("utf-8");
@@ -70,12 +71,9 @@ export default function ChatPanel({ modes }: ChatPanelProps) {
 
       const idx = assistantIndexRef.current;
       if (idx !== null) {
-        setMessages((prev) =>
-          prev.map((m, i) => (i === idx ? { ...m, text: accumulated } : m))
-        );
+        setMessages((prev) => prev.map((m, i) => (i === idx ? { ...m, text: accumulated } : m)));
       }
     }
-
     return accumulated.trim();
   };
 
@@ -87,33 +85,26 @@ export default function ChatPanel({ modes }: ChatPanelProps) {
     setIsLoading(true);
 
     try {
-      // 1) stream assistant text
       const finalText = await streamText(userText);
 
-      // 2) speak exactly what was displayed (no second LLM call)
+      // Speak exactly the text that was displayed (no second /chat call)
       if (speakEnabled && finalText) {
         const audio = await playReyaTTS(finalText); // posts to /tts
-        // remember for "Play reply" button
         if (audio?.src) setLastAudioUrl(audio.src);
       }
     } catch (err) {
       console.error("Chat error:", err);
-      setMessages((prev) => [
-        ...prev,
-        { sender: "reya", text: "⚠️ Something went wrong." },
-      ]);
+      setMessages((prev) => [...prev, { sender: "reya", text: "⚠️ Something went wrong." }]);
     } finally {
       setIsLoading(false);
     }
   };
 
-  useEffect(() => {
-    return () => abortRef.current?.abort();
-  }, []);
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   return (
     <div className="flex flex-col h-full">
-      {/* Top toolbar with Voice toggle and System Status modal trigger */}
+      {/* Top tools */}
       <div className="px-4 pt-4 flex items-center gap-2">
         <Button
           variant={speakEnabled ? "default" : "secondary"}
@@ -126,10 +117,7 @@ export default function ChatPanel({ modes }: ChatPanelProps) {
           <Button
             variant="secondary"
             onClick={async () => {
-              try {
-                const audio = new Audio(lastAudioUrl);
-                await audio.play();
-              } catch {}
+              try { const audio = new Audio(lastAudioUrl); await audio.play(); } catch {}
             }}
             title="Play last reply audio"
           >
@@ -139,13 +127,13 @@ export default function ChatPanel({ modes }: ChatPanelProps) {
         <SystemStatusModal />
       </div>
 
+      {/* Messages */}
       <ScrollArea className="flex-1 p-6 space-y-3 overflow-y-auto">
         {messages.map((msg, idx) => (
           <Card key={idx} className="bg-gray-800">
             <CardContent>
               <p>
-                <strong>{msg.sender === "user" ? "You" : "REYA"}</strong>:{" "}
-                {msg.text}
+                <strong>{msg.sender === "user" ? "You" : "REYA"}</strong>: {msg.text}
               </p>
             </CardContent>
           </Card>
@@ -153,16 +141,14 @@ export default function ChatPanel({ modes }: ChatPanelProps) {
         {isLoading && (
           <Card className="bg-gray-800">
             <CardContent>
-              <p>
-                <strong>REYA</strong>:{" "}
-                <span className="animate-pulse">...</span>
-              </p>
+              <p><strong>REYA</strong>: <span className="animate-pulse">...</span></p>
             </CardContent>
           </Card>
         )}
         <div ref={endRef} />
       </ScrollArea>
 
+      {/* Input */}
       <div className="p-4 border-t border-gray-800 flex gap-2">
         <Input
           value={input}
