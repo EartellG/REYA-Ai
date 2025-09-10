@@ -8,10 +8,26 @@ import SystemStatusModal from "@/components/SystemStatusModal";
 import { playReyaTTS } from "@/lib/reyaTts";
 import { useModes } from "@/state/modes";       // ✅ NEW
 
+export type Modes = {
+  multimodal: boolean;
+  liveAvatar: boolean;
+  logicEngine: boolean;
+  offlineSmart: boolean;
+};
+
 type Message = { sender: "user" | "reya"; text: string };
 const API_BASE = "http://127.0.0.1:8000";
 
-export default function ChatPanel() {            // ✅ no props
+
+
+export interface ChatPanelProps {
+  modes: Modes;
+}
+
+
+
+export default function  ChatPanel({ modes }: ChatPanelProps) {            // ✅ no props
+  
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -23,11 +39,15 @@ export default function ChatPanel() {            // ✅ no props
   const abortRef = useRef<AbortController | null>(null);
   const assistantIndexRef = useRef<number | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
+  console.log("ChatPanel modes:", modes);
+  
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isLoading]);
 
+
+  
   // Stream assistant text and return final accumulated text
   const streamText = async (userText: string): Promise<string> => {
     setMessages((prev) => [...prev, { sender: "user", text: userText }]);

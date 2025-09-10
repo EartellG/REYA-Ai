@@ -1,17 +1,22 @@
+// src/pages/reya-app.tsx
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarImage } from "@/components/ui/avatar";
-import { Sidebar } from "@/components/ui/sidebar";
+import Sidebar, { type TabKey } from "@/components/ui/sidebar"; // ⬅️ import TabKey type
 import ProjectsGrid from "@/components/ui/ProjectsGrid";
 import ChatPanel from "@/components/ui/ChatPanel";
 import LogicEngineTab from "@/components/ui/LogicEngineTab";
 import LiveAvatarTab from "@/components/ui/LiveAvatarTab";
-import ErrorBoundary from "@/components/ui/ErrorBoundary"; // ✅ remove curly braces
+import ErrorBoundary from "@/components/ui/ErrorBoundary";
+
+const TAB_KEYS = ["chat", "projects", "avatar", "logic", "settings"] as const;
+const isTabKey = (v: unknown): v is TabKey => (TAB_KEYS as readonly string[]).includes(v as string);
 
 export default function REYAApp() {
-  // Persistent tab selection
-  const [activeTab, setActiveTab] = useState(() => {
-    return localStorage.getItem("reya-active-tab") || "Projects";
+  // ✅ constrain to TabKey & sanitize localStorage
+  const [activeTab, setActiveTab] = useState<TabKey>(() => {
+    const saved = localStorage.getItem("reya-active-tab");
+    return isTabKey(saved) ? saved : "projects";
   });
 
   useEffect(() => {
@@ -19,14 +24,21 @@ export default function REYAApp() {
   }, [activeTab]);
 
   // Mode toggles
-  const [modes, setModes] = useState({
+  type Modes = {
+    multimodal: boolean;
+    liveAvatar: boolean;
+    logicEngine: boolean;
+    offlineSmart: boolean;
+  };
+
+  const [modes, setModes] = useState<Modes>({
     multimodal: false,
     liveAvatar: false,
     logicEngine: false,
     offlineSmart: false,
   });
 
-  const toggleMode = (key: keyof typeof modes) => {
+  const toggleMode = (key: keyof Modes) => {
     setModes((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
@@ -34,11 +46,7 @@ export default function REYAApp() {
     <div className="grid grid-cols-12 min-h-screen bg-gray-950 text-white">
       {/* Sidebar */}
       <div className="col-span-2 bg-gray-900 p-4">
-        <Sidebar
-          items={["Chat", "Projects", "Avatar", "Logic", "Settings"]}
-          activeTab={activeTab}
-          onTabChange={setActiveTab}
-        />
+        <Sidebar current={activeTab} onChange={setActiveTab} />
       </div>
 
       {/* Main App Content wrapped in ErrorBoundary */}
@@ -89,16 +97,14 @@ export default function REYAApp() {
 
           {/* Dynamic Tab Area */}
           <div className="flex-1 overflow-y-auto">
-            {activeTab === "Projects" && <ProjectsGrid />}
-            {activeTab === "Chat" && <ChatPanel modes={modes} key="chat-panel" />}
-            {activeTab === "Avatar" && <LiveAvatarTab />}
-            {activeTab === "Logic" && <LogicEngineTab />}
-            {activeTab === "Settings" && (
+            {activeTab === "projects" && <ProjectsGrid />}
+            {activeTab === "chat" && <ChatPanel modes={modes} key="chat-panel" />}
+            {activeTab === "avatar" && <LiveAvatarTab />}
+            {activeTab === "logic" && <LogicEngineTab />}
+            {activeTab === "settings" && (
               <div className="p-6">
                 <h2 className="text-2xl font-bold mb-2">Settings</h2>
                 <p>Coming soon: preferences, themes, and data export.</p>
-                <p style={{ color: "red" }}>Build: TESTING FRONTEND CACHE FIX</p>
-
               </div>
             )}
           </div>
