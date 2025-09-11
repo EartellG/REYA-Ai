@@ -221,6 +221,18 @@
       "assistant_response": "diag:value",
       "timestamp": "2025-09-10T11:21:01.032777",
       "context": {}
+    },
+    {
+      "user_input": "diag:key",
+      "assistant_response": "diag:value",
+      "timestamp": "2025-09-10T13:12:58.427099",
+      "context": {}
+    },
+    {
+      "user_input": "diag:key",
+      "assistant_response": "diag:value",
+      "timestamp": "2025-09-10T13:13:12.010496",
+      "context": {}
     }
   ],
   "preferences": {},

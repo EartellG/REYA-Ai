@@ -13,6 +13,7 @@ from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.reya_personality import ReyaPersonality, TRAITS, MANNERISMS, STYLES
+from backend.project_tools import router as project_tools
 from backend.llm_interface import (
     get_response,  # legacy high-level helper
     get_structured_reasoning_prompt,
@@ -270,3 +271,7 @@ async def kb_list(category: str):
 @app.get("/kb/search")
 async def kb_search(query: str, category: str):
     return kb.search_knowledge(query, [category])
+
+
+# ---- Project tools ----
+app.include_router(project_tools)
