@@ -233,6 +233,30 @@
       "assistant_response": "diag:value",
       "timestamp": "2025-09-10T13:13:12.010496",
       "context": {}
+    },
+    {
+      "user_input": "diag:key",
+      "assistant_response": "diag:value",
+      "timestamp": "2025-09-11T16:30:08.763845",
+      "context": {}
+    },
+    {
+      "user_input": "diag:key",
+      "assistant_response": "diag:value",
+      "timestamp": "2025-09-11T16:30:26.480338",
+      "context": {}
+    },
+    {
+      "user_input": "diag:key",
+      "assistant_response": "diag:value",
+      "timestamp": "2025-09-11T21:59:36.711312",
+      "context": {}
+    },
+    {
+      "user_input": "diag:key",
+      "assistant_response": "diag:value",
+      "timestamp": "2025-09-11T21:59:48.516334",
+      "context": {}
     }
   ],
   "preferences": {},

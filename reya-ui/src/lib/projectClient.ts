@@ -8,6 +8,8 @@ export type PlanResponse = {
   env?: string[];     // optional
 };
 
+export type UploadResponse = { upload_id: string; saved: number; files: string[] };
+
 export type StatusLog = { ts: string; line: string };
 
 export type StatusResponse = {
@@ -17,6 +19,8 @@ export type StatusResponse = {
   log: StatusLog[];
   error?: string | null;
 };
+
+export type BatchFile = { path: string; content: string };
 
 // --- PLAN ---
 export async function planProject(
@@ -30,6 +34,34 @@ export async function planProject(
     body: JSON.stringify({ idea, target, constraints }),
   });
   if (!res.ok) throw new Error("planProject failed");
+  return res.json();
+}
+
+export async function generateBatch(
+  projectId: string,
+  files: BatchFile[],
+  message?: string
+): Promise<{ ok: boolean; written: number; project_id: string }> {
+  const res = await fetch(`${API}/proj/generate-batch`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ project_id: projectId, files, message }),
+  });
+  if (!res.ok) throw new Error("generateBatch failed");
+  return res.json();
+}
+
+export async function reviewUpload(uploadId: string): Promise<{ report: string }> {
+  const res = await fetch(`${API}/proj/review-upload/${uploadId}`, { method: "POST" });
+  if (!res.ok) throw new Error("Review failed");
+  return res.json();
+}
+
+export async function uploadFiles(files: File[]): Promise<UploadResponse> {
+  const fd = new FormData();
+  files.forEach((f) => fd.append("files", f));
+  const res = await fetch(`${API}/proj/upload`, { method: "POST", body: fd });
+  if (!res.ok) throw new Error("Upload failed");
   return res.json();
 }
 
