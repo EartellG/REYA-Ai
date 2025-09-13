@@ -1,24 +1,37 @@
 const API = "http://127.0.0.1:8000";
 
 export type CodeFile = { path: string; content: string };
+export type FixFile = { path: string; content: string }; 
 
-export async function createFixPR(input: {
+
+export async function createFixPR(payload: {
   title: string;
-  description?: string;
-  base_branch?: string;
-  repo_url?: string | null;
-  files: CodeFile[];
+  description: string;
+  files: FixFile[];
 }) {
-  const res = await fetch(`${API}/proj/fix-pr`, {
+  const res = await fetch(`${API}/proj/fix/pr`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
+    body: JSON.stringify(payload),
   });
-  if (!res.ok) throw new Error(`fix-pr failed: ${res.status}`);
-  return res.json() as Promise<{
-    ok: boolean;
-    pr_id: string;
-    bundle_url: string;
-    message: string;
-  }>;
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+// NEW: local git commit
+export async function commitLocalFix(payload: {
+  repo_path: string;
+  branch?: string;
+  title: string;
+  description?: string;
+  files: FixFile[];
+  push?: boolean;
+}) {
+  const res = await fetch(`${API}/git/commit-local`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
 }

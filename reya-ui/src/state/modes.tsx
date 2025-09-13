@@ -8,7 +8,7 @@ export type Modes = {
   offlineSmart: boolean;
 };
 
-type ModesCtx = {
+export type ModesCtx = {
   modes: Modes;
   setModes: React.Dispatch<React.SetStateAction<Modes>>;
   toggle: (k: keyof Modes) => void;
@@ -16,7 +16,7 @@ type ModesCtx = {
   disable: (k: keyof Modes) => void;
 };
 
-const ModesContext = createContext<ModesCtx | null>(null);
+const ModesContext = createContext<ModesCtx | undefined>(undefined);
 
 export function ModesProvider({ children }: { children: React.ReactNode }) {
   const [modes, setModes] = useState<Modes>({
@@ -36,11 +36,16 @@ export function ModesProvider({ children }: { children: React.ReactNode }) {
     return { modes, setModes, toggle, enable, disable };
   }, [modes]);
 
-  return <ModesContext.Provider value={value}>{children}</ModesContext.Provider>;
+  return (
+    <ModesContext.Provider value={value}>{children}</ModesContext.Provider>
+  );
 }
 
-export function useModes() {
+// eslint-disable-next-line react-refresh/only-export-components
+export function useModes(): ModesCtx {
   const ctx = useContext(ModesContext);
-  if (!ctx) throw new Error("useModes must be used inside ModesProvider");
+  if (!ctx) {
+    throw new Error("useModes must be used inside <ModesProvider>");
+  }
   return ctx;
 }

@@ -3,6 +3,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { useToast } from "@/components/ui/use-toast";
+import FileDropzone from "@/components/ui/FileDropzone";
+import QuickFixPR from "@/components/ui/QuickFixPR";
 
 import {
   planProject,
@@ -17,13 +20,11 @@ import {
   type BatchFile,
 } from "@/lib/projectClient";
 
-import FileDropzone from "@/components/ui/FileDropzone";
-import DropUpload, { type UploadedFile } from "@/components/ui/DropUpload";
-import { createFixPR } from "@/lib/fixClient";
-
 type Target = "web" | "mobile" | "desktop";
 
 export default function ProjectsGrid() {
+  const { toast } = useToast();
+
   // ----- Planner / Scaffold -----
   const [idea, setIdea] = useState("");
   const [target, setTarget] = useState<Target>("web");
@@ -81,9 +82,18 @@ export default function ProjectsGrid() {
     try {
       const p = await planProject(idea.trim(), target);
       setPlan(p);
+      toast({
+        title: "Plan created",
+        description: "Architect produced a spec and task list.",
+        variant: "success",
+      });
     } catch (e) {
       console.error(e);
-      alert("Planning failed. Check backend logs.");
+      toast({
+        title: "Planning failed",
+        description: "Check backend logs.",
+        variant: "destructive",
+      });
     } finally {
       setPlanning(false);
     }
@@ -102,9 +112,17 @@ export default function ProjectsGrid() {
         log: [{ ts: new Date().toISOString(), line: s.message }],
       });
       startPolling(s.project_id);
+      toast({
+        title: "Scaffold started",
+        description: `Workspace: ${s.project_id}`,
+      });
     } catch (e) {
       console.error(e);
-      alert("Scaffold failed. Check backend logs.");
+      toast({
+        title: "Scaffold failed",
+        description: "Check backend logs.",
+        variant: "destructive",
+      });
     } finally {
       setScaffolding(false);
     }
@@ -122,14 +140,41 @@ export default function ProjectsGrid() {
 
   async function handleUpload(files: File[]) {
     setReview("");
-    const info = await uploadFiles(files); // -> { upload_id, saved, files }
-    setUploadId(info.upload_id);
+    try {
+      const info = await uploadFiles(files); // -> { upload_id, saved, files }
+      setUploadId(info.upload_id);
+      toast({
+        title: "Upload received",
+        description: `${info.saved} file(s) staged for review.`,
+        variant: "success",
+      });
+    } catch (e) {
+      console.error(e);
+      toast({
+        title: "Upload failed",
+        description: "Please try again.",
+        variant: "destructive",
+      });
+    }
   }
 
   async function handleReview() {
     if (!uploadId) return;
-    const r = await reviewUpload(uploadId);
-    setReview(r.report);
+    try {
+      const r = await reviewUpload(uploadId);
+      setReview(r.report);
+      toast({
+        title: "Review ready",
+        description: "See the summary below.",
+      });
+    } catch (e) {
+      console.error(e);
+      toast({
+        title: "Review failed",
+        description: "Check backend logs.",
+        variant: "destructive",
+      });
+    }
   }
 
   return (
@@ -145,13 +190,17 @@ export default function ProjectsGrid() {
           <div className="flex flex-col sm:flex-row gap-2">
             <Input
               value={idea}
-              onChange={(e) => setIdea(e.target.value)}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                setIdea(e.target.value)
+              }
               placeholder="Describe your app idea (e.g., 'AI Pomodoro with calendar sync')"
               className="flex-1"
             />
             <select
               value={target}
-              onChange={(e) => setTarget(e.target.value as Target)}
+              onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+                setTarget(e.target.value as Target)
+              }
               className="bg-gray-800 border border-gray-700 rounded px-2 h-10"
             >
               <option value="web">Web</option>
@@ -190,7 +239,7 @@ export default function ProjectsGrid() {
 
               {projectId && (
                 <Button
-                  variant="secondary"
+                  variant="outline"
                   onClick={async () => {
                     try {
                       // Example seed files; later we’ll replace with LLM output
@@ -201,22 +250,31 @@ export default function ProjectsGrid() {
                         },
                         {
                           path: "src/App.tsx",
-                          content:
-                            `export default function App(){ return <div className="p-6">Hello from REYA 🚀</div> }`,
+                          content: `export default function App(){
+  return <div className="p-6">Hello from REYA 🚀</div>
+}`,
                         },
                         {
                           path: "src/main.tsx",
-                          content:
-                            `import React from 'react';
+                          content: `import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 ReactDOM.createRoot(document.getElementById('root')!).render(<App />);`,
                         },
                       ];
                       await generateBatch(projectId, files, "Seed starter files");
+                      toast({
+                        title: "Files generated",
+                        description: "Starter files added to the workspace.",
+                        variant: "success",
+                      });
                     } catch (e) {
                       console.error(e);
-                      alert("Batch generation failed. Check backend logs.");
+                      toast({
+                        title: "Generation failed",
+                        description: "Check backend logs.",
+                        variant: "destructive",
+                      });
                     }
                   }}
                 >
@@ -225,7 +283,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(<App />);`,
               )}
 
               {canDownload && (
-                <Button variant="secondary" onClick={download}>
+                <Button variant="outline" onClick={download}>
                   ⬇ Download ZIP
                 </Button>
               )}
@@ -246,7 +304,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(<App />);`,
                 </p>
               </div>
               {canDownload && (
-                <Button variant="secondary" onClick={download}>
+                <Button variant="outline" onClick={download}>
                   ⬇ Download ZIP
                 </Button>
               )}
@@ -316,81 +374,6 @@ ReactDOM.createRoot(document.getElementById('root')!).render(<App />);`,
           <QuickFixPR />
         </CardContent>
       </Card>
-    </div>
-  );
-}
-
-/** separate component (don’t declare inside JSX) */
-function QuickFixPR() {
-  const [files, setFiles] = useState<UploadedFile[]>([]);
-  const [title, setTitle] = useState("Fix: clean lint & minor refactors");
-  const [desc, setDesc] = useState("");
-  const [making, setMaking] = useState(false);
-  const [bundleUrl, setBundleUrl] = useState<string | null>(null);
-
-  const create = async () => {
-    if (!files.length) {
-      alert("Please add at least one file.");
-      return;
-    }
-    setMaking(true);
-    try {
-      const res = await createFixPR({
-        title,
-        description: desc,
-        files: files.map((f) => ({ path: f.path, content: f.content })),
-      });
-      setBundleUrl(`http://127.0.0.1:8000${res.bundle_url}`);
-    } catch (e) {
-      console.error(e);
-      alert("Create Fix PR failed (see console).");
-    } finally {
-      setMaking(false);
-    }
-  };
-
-  return (
-    <div className="space-y-3">
-      <DropUpload onFiles={setFiles} />
-      {!!files.length && (
-        <div className="text-xs text-zinc-400">
-          {files.length} file(s) staged:
-          <ul className="list-disc ml-5 mt-1 max-h-24 overflow-auto">
-            {files.slice(0, 8).map((f, i) => (
-              <li key={i}>{f.path}</li>
-            ))}
-            {files.length > 8 && <li>…and more</li>}
-          </ul>
-        </div>
-      )}
-
-      <input
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-        className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2"
-        placeholder="PR title"
-      />
-      <textarea
-        value={desc}
-        onChange={(e) => setDesc(e.target.value)}
-        className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2"
-        rows={3}
-        placeholder="PR description (what you fixed, how to test)"
-      />
-
-      <div className="flex gap-2">
-        <Button onClick={create} disabled={making}>
-          {making ? "Creating…" : "Create Fix PR"}
-        </Button>
-        {bundleUrl && (
-          <Button
-            variant="secondary"
-            onClick={() => window.open(bundleUrl!, "_blank")}
-          >
-            ⬇ Download PR Bundle
-          </Button>
-        )}
-      </div>
     </div>
   );
 }
