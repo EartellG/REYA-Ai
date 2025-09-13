@@ -5,6 +5,7 @@ import sys
 import traceback
 import importlib
 from typing import Optional
+from .git_tools import router as git_tools  
 
 from fastapi import FastAPI, Request, Query, Body
 from pydantic import BaseModel
@@ -45,6 +46,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(git_tools)
 # -----------------------
 # Static files for audio
 # -----------------------
