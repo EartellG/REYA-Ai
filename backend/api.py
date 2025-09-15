@@ -8,6 +8,7 @@ from typing import Optional
 from .git_tools import router as git_tools  
 
 from fastapi import FastAPI, Request, Query, Body
+from fastapi import APIRouter
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
@@ -29,6 +30,8 @@ from backend.voice.edge_tts import (
     speak_with_voice_style,
     synthesize_to_static_url,   # ✅ single import
 )
+
+router = APIRouter()
 # Optional: other features (kept for future use)
 # from backend.features.stackoverflow_search import search_stackoverflow
 # from backend.features.youtube_search import get_youtube_metadata
@@ -38,7 +41,7 @@ from backend.voice.edge_tts import (
 # -----------------------
 # App & CORS
 # -----------------------
-app = FastAPI()
+app = FastAPI(title="Reya Backend")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],   # consider restricting in production
@@ -47,6 +50,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(git_tools)
+app.include_router(project_tools)
 # -----------------------
 # Static files for audio
 # -----------------------
@@ -113,6 +117,13 @@ def debug_info():
 @app.on_event("startup")
 async def _boot_banner():
     print("[REYA] Booting API… voice:", getattr(reya, "voice", None))
+
+@router.post("/chat")
+def chat(req: dict):
+    user_text = req.get("message","")
+    # optionally, pass req.get("modes") to influence behavior
+    reply = core.handle_text(user_text)
+    return {"response": reply}
 
 # -----------------------
 # TTS (fire-and-forget local playback)
