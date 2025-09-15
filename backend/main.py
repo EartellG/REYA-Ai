@@ -1,181 +1,219 @@
+# backend/main.py
+from __future__ import annotations
+from typing import Optional, Tuple
+
+# --- REYA subsystems (adjust import roots if your modules live elsewhere) ---
 from voice.edge_tts import speak_with_voice_style
 from reya_personality import ReyaPersonality, TRAITS, MANNERISMS, STYLES
-from llm_interface import get_response, get_structured_reasoning_prompt, query_ollama
-from features import notes, reminders, web_search
-from voice.stt import wait_for_wake_word, listen_for_command
-from intent import recognize_intent
+from llm_interface import get_structured_reasoning_prompt, query_ollama
 from features.language_tutor import LanguageTutor
-from utils.translate import translate_to_english
-from features.advanced_features import ContextualMemory, ProactiveAssistance, TaskAutomation, EmotionalIntelligence
+from features.advanced_features import (
+    ContextualMemory,
+    ProactiveAssistance,
+    TaskAutomation,
+    EmotionalIntelligence,
+)
 from features.logic_engine import evaluate_logic
 from features.stackoverflow_search import search_stackoverflow
 from features.youtube_search import get_youtube_metadata
 from features.reddit_search import search_reddit
 from features.web_search import search_web
+from voice.stt import wait_for_wake_word, listen_for_command
+from intent import recognize_intent
+from utils.translate import translate_to_english
 
-import time
-
+# --- Personality setup (shared by CLI and API) ---
 reya = ReyaPersonality(
     traits=[TRAITS["stoic"], TRAITS["playful"]],
     mannerisms=[MANNERISMS["sassy"], MANNERISMS["meta_awareness"]],
     style=STYLES["oracle"],
     voice="en-GB-MiaNeural",
-    preset={"rate": "+12%", "pitch": "-5Hz", "volume": "+0%"}
+    preset={"rate": "+12%", "pitch": "-5Hz", "volume": "+0%"},
 )
 
-memory = ContextualMemory()
-proactive = ProactiveAssistance(memory)
-automation = TaskAutomation()
-emotions = EmotionalIntelligence()
-tutor = LanguageTutor(memory)
+# --- Core re-usable engine ----------------------------------------------------
+class ReyaCore:
+    """
+    Re-usable orchestration of REYA's reasoning pipeline.
+    - Stateless entrypoint: handle_text(user_text) -> reply string
+    - Internally keeps memory/tutor/etc. so the API and CLI share the same brain.
+    """
 
-print("🔁 REYA is running...")
+    def __init__(self):
+        self.memory = ContextualMemory()
+        self.proactive = ProactiveAssistance(self.memory)
+        self.automation = TaskAutomation()
+        self.emotions = EmotionalIntelligence()
+        self.tutor = LanguageTutor(self.memory)
 
-def parse_language_level(text):
-    # Parse language and level (default to beginner if not specified)
-    lang = None
-    level = "beginner"
+    # ---------- helper(s)
+    @staticmethod
+    def _parse_language_level(text: str) -> Tuple[Optional[str], str]:
+        t = text.lower()
+        lang = None
+        if "japanese" in t:
+            lang = "Japanese"
+        elif "mandarin" in t:
+            lang = "Mandarin"
+        level = "beginner"
+        if "intermediate" in t:
+            level = "intermediate"
+        elif "advanced" in t:
+            level = "advanced"
+        return lang, level
 
-    # Detect language
-    if "japanese" in text:
-        lang = "Japanese"
-    elif "mandarin" in text:
-        lang = "Mandarin"
+    # ---------- main entrypoint
+    def handle_text(self, raw_input: str) -> str:
+        """
+        Pure text in -> text out. No STT/TTS here.
+        Safe to call from FastAPI /chat.
+        """
+        if not raw_input or not raw_input.strip():
+            return ""
 
-    # Detect level
-    if "intermediate" in text:
-        level = "intermediate"
-    elif "advanced" in text:
-        level = "advanced"
-    # if no keyword, stays beginner
+        # 1) translate for normalization (still keep original for memory)
+        user_input = raw_input.strip()
+        translated = translate_to_english(user_input) or user_input
+        tlower = translated.lower()
 
-    return lang, level
+        # 2) quits (for CLI users who pipe here)
+        if tlower in {"quit", "exit", "bye"}:
+            return "Goodbye!"
 
-while True:
-    wait_for_wake_word(reya)
-    user_input = listen_for_command(reya)
-    print(f"👤 Original input: {user_input}")
+        # 3) language tutor start
+        if "teach me japanese" in tlower or "teach me mandarin" in tlower:
+            lang, level = self._parse_language_level(tlower)
+            if lang:
+                lesson = self.tutor.start(language=lang, level=level)
+                self.memory.remember(f"{lang} {level} lesson", lesson)
 
-    translated_input = translate_to_english(user_input)
-    print(f"🌍 Translated to English: {translated_input}")
+                # (optional) track vocab for beginner
+                if level == "beginner":
+                    vocab_map = {
+                        "Japanese": [
+                            "こんにちは (Hello)",
+                            "ありがとう (Thank you)",
+                            "さようなら (Goodbye)",
+                        ],
+                        "Mandarin": [
+                            "你好 (Nǐ hǎo - Hello)",
+                            "谢谢 (Xièxiè - Thank you)",
+                            "再见 (Zàijiàn - Goodbye)",
+                        ],
+                    }
+                    if lang in vocab_map:
+                        hist = self.memory.history.setdefault("language_progress", {})
+                        L = hist.setdefault(lang, {})
+                        L.setdefault("vocab_known", []).extend(vocab_map[lang])
+                        L.setdefault("lessons_completed", []).append(level)
+                        L["daily_streak"] = L.get("daily_streak", 0) + 1
+                        self.memory.save()
+                return lesson
 
-    if not translated_input:
-        continue
+        # 4) language tutor quiz prompt (simple flow)
+        if "quiz me in japanese" in tlower or "quiz me in mandarin" in tlower:
+            lang = "Japanese" if "japanese" in tlower else "Mandarin"
+            return self.tutor.quiz_vocabulary(lang)
 
-    lower_input = translated_input.strip().lower()
+        # 5) emotional response
+        emo = self.emotions.analyze_and_respond(translated)
+        if emo:
+            return emo
 
-    if lower_input in ["quit", "exit", "bye"]:
-        speak_with_voice_style("Goodbye!", reya)
-        break
+        # 6) intent + proactive tip (tip is additive; we append)
+        intent = recognize_intent(translated)
+        tip = self.proactive.suggest(translated)
 
-    # Language Tutor Start (teach me {language} [level])
-    if any(kw in lower_input for kw in ["teach me japanese", "teach me mandarin"]):
-        lang, level = parse_language_level(lower_input)
-        if lang:
-            lesson = tutor.start(language=lang, level=level)
-            speak_with_voice_style(lesson, reya)
-            memory.remember(f"{lang} {level} lesson", lesson)
+        # 7) automations (if any returns a terminal response)
+        automated = self.automation.handle(translated)
+        if automated:
+            self.memory.remember(translated, automated)
+            return f"{tip + ' ' if tip else ''}{automated}".strip()
 
-            # Track vocab and streak for beginner only (optional: extend to other levels)
-            if level == "beginner":
-                vocab_map = {
-                    "Japanese": ["こんにちは (Hello)", "ありがとう (Thank you)", "さようなら (Goodbye)"],
-                    "Mandarin": ["你好 (Nǐ hǎo - Hello)", "谢谢 (Xièxiè - Thank you)", "再见 (Zàijiàn - Goodbye)"]
-                }
-                if lang in vocab_map:
-                    for word in vocab_map[lang]:
-                        memory.history.setdefault("language_progress", {}).setdefault(lang, {}).setdefault("vocab_known", []).append(word)
-                    memory.history["language_progress"][lang].setdefault("lessons_completed", []).append(level)
-                    memory.history["language_progress"][lang]["daily_streak"] = memory.history["language_progress"][lang].get("daily_streak", 0) + 1
-                    memory.save()
+        # 8) logic checks (quick path)
+        if any(k in tlower for k in [" and ", " or ", " not ", "true", "false"]):
+            try:
+                result = evaluate_logic(translated)
+                return f"{tip + ' ' if tip else ''}The logic result is: {result}"
+            finally:
+                pass
+
+        # 9) utility lookups
+        if "stackoverflow" in tlower or "code" in tlower:
+            ans = search_stackoverflow(translated)
+            self.memory.remember(translated, ans)
+            return f"{tip + ' ' if tip else ''}{ans}".strip()
+
+        if "youtube" in tlower:
+            meta = get_youtube_metadata(translated)
+            if meta and meta.get("title"):
+                return f"{tip + ' ' if tip else ''}The title is: {meta['title']}"
+            return "I couldn't fetch YouTube data."
+
+        if "reddit" in tlower:
+            threads = search_reddit(translated)
+            if threads:
+                return f"{tip + ' ' if tip else ''}Here's a Reddit post: {threads[0]}"
+            return "No relevant Reddit threads found."
+
+        if "search" in tlower or "look up" in tlower:
+            res = search_web(translated)
+            self.memory.remember(translated, res)
+            return f"{tip + ' ' if tip else ''}{res}".strip()
+
+        # 10) structured reasoning fallback
+        context = self.memory.get_recent_conversations()
+        structured_prompt = get_structured_reasoning_prompt(translated, context)
+        response = query_ollama(structured_prompt, model="llama3")
+        self.memory.remember(user_input, response)
+
+        # Add a proactive next-step if it ended with a question-like answer (UI can decide what to do)
+        return f"{response}".strip()
+
+
+# a single shared core instance you can import in api.py
+core = ReyaCore()
+
+# -------------------------- CLI / Voice runner -------------------------------
+# backend/main.py  (bottom of file)
+
+def run_assistant():
+    # ... your existing while True loop here ...
+    pass
+
+if __name__ == "__main__":
+    run_assistant()
+
+def run_voice_loop():
+    print("🔁 REYA (voice) is running...")
+    while True:
+        wait_for_wake_word(reya)
+        heard = listen_for_command(reya)
+        if not heard:
             continue
 
-    # Language Tutor Quiz (quiz me in {language})
-    if any(kw in lower_input for kw in ["quiz me in japanese", "quiz me in mandarin"]):
-        lang = "Japanese" if "japanese" in lower_input else "Mandarin"
-        quiz_question = tutor.quiz_vocabulary(lang)
-        speak_with_voice_style(quiz_question, reya)
+        print(f"👤 Original input: {heard}")
+        reply = core.handle_text(heard)
 
-        answer = listen_for_command(reya)
-        # Basic correctness check for "thank you"
-        if "thank" in answer.lower():
-            speak_with_voice_style("✅ Correct!", reya)
-        else:
-            correction = {
-                "Japanese": "❌ Not quite. ありがとう means 'Thank you'",
-                "Mandarin": "❌ Not quite. 谢谢 means 'Thank you'"
-            }
-            speak_with_voice_style(correction.get(lang, "❌ Not quite."), reya)
-        continue
+        if not reply:
+            continue
 
-    # Other features (emotion, intent, automation, logic, web search etc.)
-    emotional_response = emotions.analyze_and_respond(translated_input)
-    if emotional_response:
-        speak_with_voice_style(emotional_response, reya)
-        continue
+        speak_with_voice_style(reply, reya)
+        if reply.strip().lower() == "goodbye!":
+            break
 
-    intent = recognize_intent(translated_input)
-    tip = proactive.suggest(translated_input)
-    if tip:
-        speak_with_voice_style(tip, reya)
+        # micro follow-up: if the reply ends with a '?', prompt a follow-up
+        if reply.strip().endswith("?"):
+            follow = listen_for_command(reya)
+            if follow:
+                follow_reply = core.handle_text(follow)
+                speak_with_voice_style(follow_reply, reya)
 
-    automated = automation.handle(translated_input)
-    if automated:
-        speak_with_voice_style(automated, reya)
-        memory.remember(translated_input, automated)
-        continue
 
-    if any(k in translated_input.lower() for k in ["and", "or", "not", "true", "false"]):
-        result = evaluate_logic(translated_input)
-        speak_with_voice_style(f"The logic result is: {result}", reya)
-        continue
-
-    if "stackoverflow" in translated_input.lower() or "code" in translated_input.lower():
-        result = search_stackoverflow(translated_input)
-        speak_with_voice_style(result, reya)
-        memory.remember(translated_input, result)
-        continue
-
-    if "youtube" in translated_input.lower():
-        metadata = get_youtube_metadata(translated_input)
-        if metadata:
-            speak_with_voice_style(f"The title is: {metadata.get('title')}", reya)
-        else:
-            speak_with_voice_style("I couldn't fetch YouTube data.", reya)
-        continue
-
-    if "reddit" in translated_input.lower():
-        threads = search_reddit(translated_input)
-        if threads:
-            speak_with_voice_style(f"Here's a Reddit post: {threads[0]}", reya)
-        else:
-            speak_with_voice_style("No relevant Reddit threads found.", reya)
-        continue
-
-    if any(term in translated_input.lower() for term in ["search", "look up"]):
-        result = search_web(translated_input)
-        speak_with_voice_style(result, reya)
-        memory.remember(translated_input, result)
-        continue
-
-    # Structured reasoning fallback
-    context = memory.get_recent_conversations()
-    structured_prompt = get_structured_reasoning_prompt(translated_input, context)
-    response = query_ollama(structured_prompt, model="llama3")
-    speak_with_voice_style(response, reya)
-    memory.remember(user_input, response)
-
-    if response.strip().endswith("?"):
-        speak_with_voice_style(f"What would you like me to do next related to '{translated_input}'?", reya)
-        follow_up = listen_for_command(reya)
-        if follow_up:
-            emotional_response = emotions.analyze_and_respond(follow_up)
-            if emotional_response:
-                speak_with_voice_style(emotional_response, reya)
-                continue
-
-            followup_context = memory.get_recent_conversations()
-            followup_prompt = get_structured_reasoning_prompt(follow_up, followup_context)
-            followup_response = query_ollama(followup_prompt, model="llama3")
-            speak_with_voice_style(followup_response, reya)
-            memory.remember(follow_up, followup_response)
+if __name__ == "__main__":
+    # Keep the voice loop behind the guard so importing this file
+    # from FastAPI does NOT start the infinite loop.
+    try:
+        run_voice_loop()
+    except KeyboardInterrupt:
+        print("\n👋 Exiting voice loop…")
