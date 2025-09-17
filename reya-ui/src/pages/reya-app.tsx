@@ -11,8 +11,10 @@ import ErrorBoundary from "@/components/ui/ErrorBoundary";
 import { useModes } from "@/state/modes";
 import LanguageTutorPanel from "@/components/ui/LanguageTutorPanel";
 import KnowledgeBaseTab from "@/tabs/KnowledgeBaseTab";
+import RolesPage from "./RolesPage";         // ✅ Roles
+import SettingsTab from "@/tabs/SettingsTab"; // ✅ Real Settings panel
 
-const TAB_KEYS = ["chat", "projects", "tutor", "kb", "logic", "avatar", "settings"] as const;
+const TAB_KEYS = ["chat", "projects", "tutor", "kb", "logic", "avatar", "settings", "roles"] as const;
 const isTabKey = (v: unknown): v is TabKey => (TAB_KEYS as readonly string[]).includes(v as string);
 
 export default function REYAApp() {
@@ -37,7 +39,7 @@ export default function REYAApp() {
           >
             ☰
           </button>
-        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2">
             <Avatar className="h-8 w-8">
               <AvatarImage src="/ReyaAva.png" alt="REYA" />
             </Avatar>
@@ -83,12 +85,8 @@ export default function REYAApp() {
               {activeTab === "logic" && <LogicEngineTab />}
               {activeTab === "tutor" && <LanguageTutorPanel />}
               {activeTab === "kb" && <KnowledgeBaseTab />}
-              {activeTab === "settings" && (
-                <div className="p-2">
-                  <h2 className="text-2xl font-bold mb-2">Settings</h2>
-                  <p>Coming soon: preferences, themes, and data export.</p>
-                </div>
-              )}
+              {activeTab === "roles" && <RolesPage />}
+              {activeTab === "settings" && <SettingsTab />}
             </div>
           </ErrorBoundary>
         </main>
