@@ -13,6 +13,8 @@ from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from backend.routes.roles_pm import router as roles_pm_router
+from backend.routes.settings import router as settings_router
 
 from backend.reya_personality import ReyaPersonality, TRAITS, MANNERISMS, STYLES
 from backend.project_tools import router as project_tools
@@ -51,6 +53,10 @@ app.add_middleware(
 )
 app.include_router(git_tools)
 app.include_router(project_tools)
+app.include_router(roles_pm_router)
+app.include_router(settings_router)
+
+
 # -----------------------
 # Static files for audio
 # -----------------------
@@ -65,7 +71,7 @@ reya = ReyaPersonality(
     mannerisms=[MANNERISMS["sassy"], MANNERISMS["meta_awareness"]],
     style=STYLES["oracle"],                 # text vibe
     voice="en-GB-MiaNeural",                # TTS voice
-    preset={"rate": "+12%", "pitch": "-5Hz", "volume": "+0%"},
+    preset={"rate": "+14%", "pitch": "-5Hz", "volume": "+0%"},
 )
 memory = ContextualMemory()
 
@@ -80,6 +86,13 @@ class SpeakRequest(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str
+
+
+###KBSTUB###
+class _KBStub:
+    def search_knowledge(self, q, cats): return []
+kb = _KBStub()
+
 
 # -----------------------
 # Health / Debug

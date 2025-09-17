@@ -3,24 +3,24 @@ from __future__ import annotations
 from typing import Optional, Tuple
 
 # --- REYA subsystems (adjust import roots if your modules live elsewhere) ---
-from voice.edge_tts import speak_with_voice_style
-from reya_personality import ReyaPersonality, TRAITS, MANNERISMS, STYLES
-from llm_interface import get_structured_reasoning_prompt, query_ollama
-from features.language_tutor import LanguageTutor
-from features.advanced_features import (
+from .voice.edge_tts import speak_with_voice_style
+from .reya_personality import ReyaPersonality, TRAITS, MANNERISMS, STYLES
+from .llm_interface import get_structured_reasoning_prompt, query_ollama
+from .features.language_tutor import LanguageTutor
+from .features.advanced_features import (
     ContextualMemory,
     ProactiveAssistance,
     TaskAutomation,
     EmotionalIntelligence,
 )
-from features.logic_engine import evaluate_logic
-from features.stackoverflow_search import search_stackoverflow
-from features.youtube_search import get_youtube_metadata
-from features.reddit_search import search_reddit
-from features.web_search import search_web
-from voice.stt import wait_for_wake_word, listen_for_command
-from intent import recognize_intent
-from utils.translate import translate_to_english
+from .features.logic_engine import evaluate_logic
+from .features.stackoverflow_search import search_stackoverflow
+from .features.youtube_search import get_youtube_metadata
+from .features.reddit_search import search_reddit
+from .features.web_search import search_web
+from .voice.stt import wait_for_wake_word, listen_for_command
+from .intent import recognize_intent
+from .utils.translate import translate_to_english
 
 # --- Personality setup (shared by CLI and API) ---
 reya = ReyaPersonality(
@@ -28,7 +28,7 @@ reya = ReyaPersonality(
     mannerisms=[MANNERISMS["sassy"], MANNERISMS["meta_awareness"]],
     style=STYLES["oracle"],
     voice="en-GB-MiaNeural",
-    preset={"rate": "+12%", "pitch": "-5Hz", "volume": "+0%"},
+    preset={"rate": "+14%", "pitch": "-5Hz", "volume": "+0%"},
 )
 
 # --- Core re-usable engine ----------------------------------------------------
@@ -61,6 +61,8 @@ class ReyaCore:
         elif "advanced" in t:
             level = "advanced"
         return lang, level
+    
+        
 
     # ---------- main entrypoint
     def handle_text(self, raw_input: str) -> str:

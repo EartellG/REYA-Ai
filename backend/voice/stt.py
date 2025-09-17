@@ -1,7 +1,7 @@
 import speech_recognition as sr
 from fuzzywuzzy import fuzz
 import pyttsx3
-from voice.edge_tts import speak_with_voice_style
+from .edge_tts import speak_with_voice_style
 
 
 recognizer = sr.Recognizer()

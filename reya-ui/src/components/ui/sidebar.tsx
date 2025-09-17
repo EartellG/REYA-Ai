@@ -1,7 +1,7 @@
 import { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
-export type TabKey = "chat" | "projects" | "tutor" | "kb" | "settings";
+export type TabKey = "chat" | "projects" | "tutor" | "kb" | "settings" | "roles";
 
 type Item = { key: TabKey; icon: ReactNode; label: string };
 
@@ -10,7 +10,8 @@ const items: Item[] = [
   { key: "projects", icon: "📁", label: "Projects" },
   { key: "tutor",    icon: "🈺", label: "Language Tutor" },
   { key: "kb",       icon: "📚", label: "Knowledge Base" },
-  { key: "settings", icon: "⚙️", label: "Settings" },
+  { key: "roles",    icon: "📝", label: "Roles" },
+  { key: "settings", icon: "⚙️", label: "Settings" }, 
 ];
 
 export default function Sidebar({
