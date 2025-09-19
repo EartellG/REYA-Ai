@@ -11,8 +11,8 @@ import ErrorBoundary from "@/components/ui/ErrorBoundary";
 import { useModes } from "@/state/modes";
 import LanguageTutorPanel from "@/components/ui/LanguageTutorPanel";
 import KnowledgeBaseTab from "@/tabs/KnowledgeBaseTab";
-import RolesPage from "./RolesPage";         // ✅ Roles
-import SettingsTab from "@/tabs/SettingsTab"; // ✅ Real Settings panel
+import RolesPage from "./RolesPage";          // Roles page in same dir; adjust if your path differs
+import SettingsTab from "@/tabs/SettingsTab";  // Real Settings panel
 
 const TAB_KEYS = ["chat", "projects", "tutor", "kb", "logic", "avatar", "settings", "roles"] as const;
 const isTabKey = (v: unknown): v is TabKey => (TAB_KEYS as readonly string[]).includes(v as string);
@@ -27,14 +27,22 @@ export default function REYAApp() {
   const { modes, toggle } = useModes();
   const [navOpen, setNavOpen] = useState(false);
 
+  // Auto-close the drawer when switching to desktop widths
+  useEffect(() => {
+    const mql = window.matchMedia("(min-width: 1024px)");
+    const handler = () => mql.matches && setNavOpen(false);
+    mql.addEventListener?.("change", handler);
+    return () => mql.removeEventListener?.("change", handler);
+  }, []);
+
   return (
-    <div className="min-h-screen bg-gray-950 text-white">
+    <div className="min-h-[100dvh] bg-gray-950 text-white safe-b">
       {/* Topbar */}
       <div className="sticky top-0 z-40 flex items-center justify-between gap-3 px-3 py-2 border-b border-gray-800 bg-gray-950/95 backdrop-blur md:px-4">
         <div className="flex items-center gap-3">
           <button
             className="md:hidden inline-flex h-10 w-10 items-center justify-center rounded-lg border border-gray-800"
-            onClick={() => setNavOpen((v) => !v)}
+            onClick={() => setNavOpen(v => !v)}
             aria-label="Toggle navigation"
           >
             ☰
@@ -47,23 +55,34 @@ export default function REYAApp() {
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          <Button variant={modes.multimodal ? "default" : "outline"} onClick={() => toggle("multimodal")}>🧠 Multimodal</Button>
-          <Button variant={modes.liveAvatar ? "default" : "outline"} onClick={() => toggle("liveAvatar")}>🧍 Live Avatar</Button>
-          <Button variant={modes.logicEngine ? "default" : "outline"} onClick={() => toggle("logicEngine")}>🧮 Logic</Button>
-          <Button variant={modes.offlineSmart ? "default" : "outline"} onClick={() => toggle("offlineSmart")}>🌐 Offline</Button>
+        <div className="topbar-buttons flex flex-wrap gap-1 sm:gap-2">
+          <Button variant={modes.multimodal ? "default" : "outline"} onClick={() => toggle("multimodal")}>
+            <span className="mr-1">🧠</span><span className="label hidden sm:inline">Multimodal</span>
+          </Button>
+          <Button variant={modes.liveAvatar ? "default" : "outline"} onClick={() => toggle("liveAvatar")}>
+            <span className="mr-1">🧍</span><span className="label hidden sm:inline">Live Avatar</span>
+          </Button>
+          <Button variant={modes.logicEngine ? "default" : "outline"} onClick={() => toggle("logicEngine")}>
+            <span className="mr-1">🧮</span><span className="label hidden sm:inline">Logic</span>
+          </Button>
+          <Button variant={modes.offlineSmart ? "default" : "outline"} onClick={() => toggle("offlineSmart")}>
+            <span className="mr-1">🌐</span><span className="label hidden sm:inline">Offline</span>
+          </Button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-12">
+      <div className="grid grid-cols-1 md:grid-cols-12 grid-main">
         {/* Sidebar (drawer on mobile) */}
         <aside
           className={`fixed inset-y-0 left-0 z-50 w-72 transform bg-gray-900/80 transition-transform duration-200 md:static md:col-span-2 md:w-auto md:translate-x-0 ${navOpen ? "translate-x-0" : "-translate-x-full"}`}
+          aria-hidden={!navOpen}
         >
           <div className="h-full p-3">
             <Sidebar
               current={activeTab}
               onChange={(k) => { setActiveTab(k); setNavOpen(false); }}
+              mobileOpen={navOpen}
+              onClose={() => setNavOpen(false)}
             />
           </div>
         </aside>
@@ -78,7 +97,7 @@ export default function REYAApp() {
               </div>
             }
           >
-            <div className="p-4">
+            <div className="content-pad p-3 sm:p-4">
               {activeTab === "projects" && <ProjectsGrid />}
               {activeTab === "chat" && <ChatPanel />}
               {activeTab === "avatar" && <LiveAvatarTab />}

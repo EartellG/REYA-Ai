@@ -5,6 +5,8 @@ import REYAApp from "./pages/reya-app"; // or your router root; if you render re
 import { ModesProvider } from "@/state/modes";
 import { ToastProvider, Toaster } from "@/components/ui/use-toast";
 import "@/index.css" // <-- provider + toaster
+import "@/styles/fold.css";
+
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

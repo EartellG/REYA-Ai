@@ -3,3 +3,9 @@
 html, body {
   @apply bg-gray-900 text-gray-100;
 }
+
+@supports (padding: max(0px)) {
+  .safe-b {
+    padding-bottom: max(env(safe-area-inset-bottom), 0px);
+  }
+}

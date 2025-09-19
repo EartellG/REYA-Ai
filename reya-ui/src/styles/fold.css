@@ -1,0 +1,48 @@
+/* Ensure correct viewport behavior on phones with notches/foldables */
+:root {
+  /* just in case: safe area helpers */
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+@media (max-width: 430px) and (orientation: portrait) {
+  /* Summit 5G + Fold cover display (narrow portrait) */
+  .drawer {
+    width: 88vw;           /* slightly wider for thumb reach */
+    max-width: 360px;
+  }
+  .topbar-buttons .label {
+    display: none;         /* icons only on small/narrow portrait */
+  }
+  .content-pad {
+    padding: 12px;         /* tighter padding to show more content */
+  }
+}
+
+@media (min-width: 600px) and (max-width: 920px) {
+  /* Fold inner display (unfolded tablet-ish) */
+  .drawer {
+    width: 320px;          /* fixed comfortable drawer */
+    max-width: 360px;
+  }
+  .grid-main {
+    grid-template-columns: 320px 1fr !important; /* sidebar + content */
+  }
+  .content-pad {
+    padding: 16px;         /* medium padding */
+  }
+  .topbar-buttons .label {
+    display: inline;       /* show labels again on inner display */
+  }
+}
+
+@media (min-width: 921px) {
+  /* desktop and larger: your current behavior applies */
+  .content-pad {
+    padding: 1rem;         /* tailwind sm:p-4 equivalence */
+  }
+}
+
+/* Keep bottom UI clear of gesture bar on phones */
+.safe-b {
+  padding-bottom: var(--safe-bottom);
+}
