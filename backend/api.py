@@ -28,6 +28,7 @@ from backend.features.advanced_features import PersonalizedKnowledgeBase
 from backend.features.language_tutor import LanguageTutor
 from backend.intent import recognize_intent
 from backend.diagnostics import run_diagnostics
+from backend.routes.tts_vocab import router as tts_router
 from backend.voice.edge_tts import (
     speak_with_voice_style,
     synthesize_to_static_url,   # ✅ single import
@@ -55,6 +56,8 @@ app.include_router(git_tools)
 app.include_router(project_tools)
 app.include_router(roles_pm_router)
 app.include_router(settings_router)
+app.include_router(tts_router)
+
 
 
 # -----------------------

@@ -443,6 +443,12 @@
       "assistant_response": "Well, isn't this an unexpected turn! Alrighty then, let's navigate the Land of the Rising Sun together. But remember, I'm more skilled in ancient languages than modern ones. Let me guess, you want to learn something specific? Or perhaps you'd prefer a fun Japanese riddle to warm up?",
       "timestamp": "2025-09-16T21:11:23.574309",
       "context": {}
+    },
+    {
+      "user_input": "hello how are you?",
+      "assistant_response": "Hello there! I don't get tired or emotional, but for the sake of pleasantries, let's say I'm as vibrant as a cherry blossom in springtime. How about you? Are you ready to immerse yourself in the rich culture and language of Japan?",
+      "timestamp": "2025-09-18T17:51:29.892594",
+      "context": {}
     }
   ],
   "preferences": {},
@@ -472,9 +478,26 @@
       "last_lesson_id": "jp_beginner_1"
     },
     "Mandarin": {
-      "vocab_known": [],
-      "lessons_completed": [],
-      "daily_streak": 0
+      "vocab_known": [
+        {
+          "native": "你好",
+          "translated": "Hello"
+        },
+        {
+          "native": "谢谢",
+          "translated": "Thank you"
+        },
+        {
+          "native": "再见",
+          "translated": "Goodbye"
+        }
+      ],
+      "lessons_completed": [
+        "zh_beginner_1"
+      ],
+      "daily_streak": 1,
+      "last_level": "beginner",
+      "last_lesson_id": "zh_beginner_1"
     }
   }
 }
