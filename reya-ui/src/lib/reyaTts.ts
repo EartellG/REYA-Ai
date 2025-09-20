@@ -1,17 +1,18 @@
-const API_BASE = "http://127.0.0.1:8000";
-
-export async function playReyaTTS(text: string): Promise<HTMLAudioElement | null> {
-  const res = await fetch(`${API_BASE}/tts`, {
+// src/lib/reyaTts.ts
+export async function playReyaTTS(text: string, voice?: string) {
+  const r = await fetch("http://127.0.0.1:8000/tts", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, voice }),
   });
-  if (!res.ok) return null;
+  const data = await r.json();
+  if (!r.ok || !data?.url) throw new Error(data?.detail || "No URL");
 
-  const data: { ok?: boolean; audio_url?: string | null } = await res.json();
-  if (!data?.ok || !data.audio_url) return null;
+  // prevent stale/partial caching on very first read
+  const url = data.url + (data.url.includes("?") ? "&" : "?") + "v=" + Date.now();
 
-  const audio = new Audio(`${API_BASE}${data.audio_url}`);
-  try { await audio.play(); } catch { /* autoplay blocked — caller handles */ }
-  return audio;
+  const a = new Audio(url);
+  a.preload = "auto";
+  await a.play();
+  return a;
 }

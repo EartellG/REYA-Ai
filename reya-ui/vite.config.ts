@@ -28,6 +28,7 @@ export default defineConfig({
       '/roles': 'http://127.0.0.1:8000',
       '/tts': "http://127.0.0.1:8000",
        '/static': "http://127.0.0.1:8000",
+        '/voice': "http://127.0.0.1:8000",  
       // add more as you wire them:
       // '/diagnostics': 'http://127.0.0.1:8000',
       // '/git': 'http://127.0.0.1:8000',

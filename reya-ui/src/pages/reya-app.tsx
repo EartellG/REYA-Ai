@@ -11,8 +11,10 @@ import ErrorBoundary from "@/components/ui/ErrorBoundary";
 import { useModes } from "@/state/modes";
 import LanguageTutorPanel from "@/components/ui/LanguageTutorPanel";
 import KnowledgeBaseTab from "@/tabs/KnowledgeBaseTab";
-import RolesPage from "./RolesPage";          // Roles page in same dir; adjust if your path differs
-import SettingsTab from "@/tabs/SettingsTab";  // Real Settings panel
+import RolesPage from "./RolesPage";
+import SettingsTab from "@/tabs/SettingsTab";
+import VoiceController from "@/components/ui/VoiceController";
+import { useChatStore } from "@/state/chatStore";
 
 const TAB_KEYS = ["chat", "projects", "tutor", "kb", "logic", "avatar", "settings", "roles"] as const;
 const isTabKey = (v: unknown): v is TabKey => (TAB_KEYS as readonly string[]).includes(v as string);
@@ -27,7 +29,11 @@ export default function REYAApp() {
   const { modes, toggle } = useModes();
   const [navOpen, setNavOpen] = useState(false);
 
-  // Auto-close the drawer when switching to desktop widths
+  // chat store hooks
+  const addUser = useChatStore((s) => s.addUser);
+  const addAssistant = useChatStore((s) => s.addAssistant);
+
+  // Auto-close drawer on desktop
   useEffect(() => {
     const mql = window.matchMedia("(min-width: 1024px)");
     const handler = () => mql.matches && setNavOpen(false);
@@ -36,87 +42,109 @@ export default function REYAApp() {
   }, []);
 
   return (
-    <div className="min-h-[100dvh] bg-gray-950 text-white safe-b">
-      {/* Topbar */}
-      <div className="sticky top-0 z-40 flex items-center justify-between gap-3 px-3 py-2 border-b border-gray-800 bg-gray-950/95 backdrop-blur md:px-4">
-        <div className="flex items-center gap-3">
-          <button
-            className="md:hidden inline-flex h-10 w-10 items-center justify-center rounded-lg border border-gray-800"
-            onClick={() => setNavOpen(v => !v)}
-            aria-label="Toggle navigation"
-          >
-            ☰
-          </button>
-          <div className="flex items-center gap-2">
-            <Avatar className="h-8 w-8">
-              <AvatarImage src="/ReyaAva.png" alt="REYA" />
-            </Avatar>
-            <h1 className="text-lg font-semibold">REYA</h1>
+    <div data-theme="glass-aurora-purple" className="min-h-[100dvh] text-white ga-aurora safe-b">
+      {/* Topbar — glass with neon pills */}
+      <header className="sticky top-0 z-40 ga-panel backdrop-blur border border-white/10 rounded-2xl mx-2 mt-2 px-3 py-2 md:mx-3 md:px-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <button
+              className="md:hidden inline-flex h-10 w-10 items-center justify-center ga-btn"
+              onClick={() => setNavOpen(v => !v)}
+              aria-label="Toggle navigation"
+            >
+              ☰
+            </button>
+            <div className="flex items-center gap-2">
+              <Avatar className="h-8 w-8">
+                <AvatarImage src="/ReyaAva.png" alt="REYA" />
+              </Avatar>
+              <h1 className="text-lg font-semibold">REYA</h1>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1 sm:gap-2">
+            <VoiceController
+              onTranscript={async (t) => {
+                addUser(t);
+                const reply = "Got it! Opening the right tab.";
+                addAssistant(reply);
+                try {
+                  const r = await fetch("http://127.0.0.1:8000/tts", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ text: reply }),
+                  });
+                  const data = await r.json();
+                  if (r.ok && data.url) new Audio(data.url).play();
+                } catch {}
+              }}
+              onNavigate={(tab) => setActiveTab(tab as TabKey)}
+              lang="en-US"
+            />
+
+            <Button className="ga-btn" onClick={() => toggle("multimodal")}>
+              🧠 <span className="hidden sm:inline ml-1">Multimodal</span>
+            </Button>
+            <Button className="ga-btn" onClick={() => toggle("liveAvatar")}>
+              🧍 <span className="hidden sm:inline ml-1">Live Avatar</span>
+            </Button>
+            <Button className="ga-btn" onClick={() => toggle("logicEngine")}>
+              🧮 <span className="hidden sm:inline ml-1">Logic</span>
+            </Button>
+            <Button className="ga-btn" onClick={() => toggle("offlineSmart")}>
+              🌐 <span className="hidden sm:inline ml-1">Offline</span>
+            </Button>
           </div>
         </div>
+      </header>
 
-        <div className="topbar-buttons flex flex-wrap gap-1 sm:gap-2">
-          <Button variant={modes.multimodal ? "default" : "outline"} onClick={() => toggle("multimodal")}>
-            <span className="mr-1">🧠</span><span className="label hidden sm:inline">Multimodal</span>
-          </Button>
-          <Button variant={modes.liveAvatar ? "default" : "outline"} onClick={() => toggle("liveAvatar")}>
-            <span className="mr-1">🧍</span><span className="label hidden sm:inline">Live Avatar</span>
-          </Button>
-          <Button variant={modes.logicEngine ? "default" : "outline"} onClick={() => toggle("logicEngine")}>
-            <span className="mr-1">🧮</span><span className="label hidden sm:inline">Logic</span>
-          </Button>
-          <Button variant={modes.offlineSmart ? "default" : "outline"} onClick={() => toggle("offlineSmart")}>
-            <span className="mr-1">🌐</span><span className="label hidden sm:inline">Offline</span>
-          </Button>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-12 grid-main">
-        {/* Sidebar (drawer on mobile) */}
+      <div className="grid grid-cols-1 md:grid-cols-12">
+        {/* Sidebar — apply glass directly on aside; remove inner wrapper to avoid double panel */}
         <aside
-          className={`fixed inset-y-0 left-0 z-50 w-72 transform bg-gray-900/80 transition-transform duration-200 md:static md:col-span-2 md:w-auto md:translate-x-0 ${navOpen ? "translate-x-0" : "-translate-x-full"}`}
+          className={`fixed inset-y-0 left-0 z-50 w-72 transform md:static md:col-span-2 md:w-auto md:translate-x-0 transition-transform duration-200 ${
+            navOpen ? "translate-x-0" : "-translate-x-full"
+          } ga-panel m-2 md:m-0 p-2`}
           aria-hidden={!navOpen}
         >
-          <div className="h-full p-3">
-            <Sidebar
-              current={activeTab}
-              onChange={(k) => { setActiveTab(k); setNavOpen(false); }}
-              mobileOpen={navOpen}
-              onClose={() => setNavOpen(false)}
-            />
-          </div>
+          <Sidebar
+            current={activeTab}
+            onChange={(k) => { setActiveTab(k); setNavOpen(false); }}
+            mobileOpen={navOpen}
+            onClose={() => setNavOpen(false)}
+          />
         </aside>
 
         {/* Content */}
         <main className="md:col-span-10">
           <ErrorBoundary
             fallback={
-              <div className="p-10 text-center text-red-500">
+              <div className="p-10 text-center text-pink-400">
                 <h2 className="text-2xl font-bold mb-4">💥 REYA Crashed</h2>
                 <p>Something went wrong. Please reload or switch tabs.</p>
               </div>
             }
           >
-            <div className="content-pad p-3 sm:p-4">
-              {activeTab === "projects" && <ProjectsGrid />}
-              {activeTab === "chat" && <ChatPanel />}
-              {activeTab === "avatar" && <LiveAvatarTab />}
-              {activeTab === "logic" && <LogicEngineTab />}
-              {activeTab === "tutor" && <LanguageTutorPanel />}
-              {activeTab === "kb" && <KnowledgeBaseTab />}
-              {activeTab === "roles" && <RolesPage />}
-              {activeTab === "settings" && <SettingsTab />}
+            <div className="p-3 sm:p-4">
+              <div className="ga-panel p-3 sm:p-4">
+                <div className="space-y-3 sm:space-y-4">
+                  {activeTab === "projects" && <div className="ga-card p-4"><ProjectsGrid /></div>}
+                  {activeTab === "chat" &&     <div className="ga-card p-4"><ChatPanel /></div>}
+                  {activeTab === "avatar" &&   <div className="ga-card p-4"><LiveAvatarTab /></div>}
+                  {activeTab === "logic" &&    <div className="ga-card p-4"><LogicEngineTab /></div>}
+                  {activeTab === "tutor" &&    <div className="ga-card p-4"><LanguageTutorPanel /></div>}
+                  {activeTab === "kb" &&       <div className="ga-card p-4"><KnowledgeBaseTab /></div>}
+                  {activeTab === "roles" &&    <div className="ga-card p-4"><RolesPage /></div>}
+                  {activeTab === "settings" && <div className="ga-card p-4"><SettingsTab /></div>}
+                </div>
+              </div>
             </div>
           </ErrorBoundary>
         </main>
       </div>
 
-      {/* Backdrop for the mobile drawer */}
+      {/* Mobile backdrop */}
       {navOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-black/50 md:hidden"
-          onClick={() => setNavOpen(false)}
-        />
+        <div className="fixed inset-0 z-40 bg-black/50 md:hidden" onClick={() => setNavOpen(false)} />
       )}
     </div>
   );
