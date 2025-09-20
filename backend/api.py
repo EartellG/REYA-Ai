@@ -15,6 +15,10 @@ from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from backend.routes.roles_pm import router as roles_pm_router
 from backend.routes.settings import router as settings_router
+from backend.routes.voice_router import router as voice_router
+from backend.routes.tts import router as tts_router
+from backend.routes.tts_vocab import router as tts_vocab_router
+
 
 from backend.reya_personality import ReyaPersonality, TRAITS, MANNERISMS, STYLES
 from backend.project_tools import router as project_tools
@@ -28,13 +32,13 @@ from backend.features.advanced_features import PersonalizedKnowledgeBase
 from backend.features.language_tutor import LanguageTutor
 from backend.intent import recognize_intent
 from backend.diagnostics import run_diagnostics
-from backend.routes.tts_vocab import router as tts_router
 from backend.voice.edge_tts import (
     speak_with_voice_style,
     synthesize_to_static_url,   # ✅ single import
 )
 
 router = APIRouter()
+app = FastAPI() 
 # Optional: other features (kept for future use)
 # from backend.features.stackoverflow_search import search_stackoverflow
 # from backend.features.youtube_search import get_youtube_metadata
@@ -57,8 +61,9 @@ app.include_router(project_tools)
 app.include_router(roles_pm_router)
 app.include_router(settings_router)
 app.include_router(tts_router)
-
-
+app.include_router(voice_router)
+app.mount("/static", StaticFiles(directory="static"), name="static")
+app.include_router(tts_vocab_router)
 
 # -----------------------
 # Static files for audio

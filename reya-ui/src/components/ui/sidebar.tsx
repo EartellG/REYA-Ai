@@ -69,7 +69,7 @@ export default function Sidebar({
         aria-label="Navigation"
       >
         <div className="text-xl font-semibold px-2 pb-3 pt-[max(env(safe-area-inset-top),0px)]">
-          REYA
+        
         </div>
         <nav className="space-y-1">
           {items.map((it, idx) => (
