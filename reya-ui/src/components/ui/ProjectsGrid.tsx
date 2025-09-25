@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/use-toast";
 import FileDropzone from "@/components/ui/FileDropzone";
 import QuickFixPR from "@/components/ui/QuickFixPR";
+import WireframesPanel from "@/features/wireframes/WireframesPanel";
 
 import {
   planProject,
@@ -179,6 +180,7 @@ export default function ProjectsGrid() {
 
   return (
     <div className="p-6 space-y-4">
+      <WireframesPanel />
       <h2 className="text-2xl font-bold">📁 Projects</h2>
       <p className="text-zinc-400">
         Turn an idea into a runnable scaffold, watch build logs, then download a zip.

@@ -18,6 +18,12 @@ from backend.routes.settings import router as settings_router
 from backend.routes.voice_router import router as voice_router
 from backend.routes.tts import router as tts_router
 from backend.routes.tts_vocab import router as tts_vocab_router
+from backend.routes.roles_coder import router as roles_coder_router
+from backend.routes.roles_reviewer import router as roles_reviewer_router
+from backend.routes.roles_fixer import router as roles_fixer_router
+from backend.routes.roles_monetizer import router as roles_monetizer_router
+
+
 
 
 from backend.reya_personality import ReyaPersonality, TRAITS, MANNERISMS, STYLES
@@ -64,6 +70,10 @@ app.include_router(tts_router)
 app.include_router(voice_router)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 app.include_router(tts_vocab_router)
+app.include_router(roles_coder_router)
+app.include_router(roles_reviewer_router)
+app.include_router(roles_fixer_router)
+app.include_router(roles_monetizer_router)
 
 # -----------------------
 # Static files for audio
