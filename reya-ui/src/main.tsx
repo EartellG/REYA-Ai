@@ -8,6 +8,8 @@ import "@/index.css" // <-- provider + toaster
 import "@/styles/fold.css";
 
 
+document.documentElement.setAttribute("data-theme", "glass-aurora-purple");
+
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <ModesProvider>

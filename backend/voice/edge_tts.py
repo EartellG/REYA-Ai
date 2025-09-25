@@ -63,30 +63,57 @@ def default_voice_for_text(text: str) -> str:
     return "en-US-JennyNeural"
 
 # ---------------- Local WAV fallback ----------------
+# backend/edge_tts.py  (replace just this function)
+
 def _fallback_sapi_to_wav(text: str, out_path_wav: str) -> str:
     """
     Use pyttsx3 (Windows SAPI) to synthesize to WAV at out_path_wav.
-    Tries to prefer an English UK female if available, otherwise default voice.
+    Prefer female + en-GB; else female + English; else default.
     """
     if not _PYTTSX3_OK:
         raise RuntimeError("pyttsx3 is not installed for local TTS fallback.")
+
     engine = pyttsx3.init()
     try:
         voices = engine.getProperty("voices") or []
+        # Normalize helper
+        def norm(s): return (s or "").lower()
+
+        # Score voices: higher is better
+        def score(v):
+            name   = norm(getattr(v, "name", ""))
+            lang_s = ",".join(getattr(v, "languages", []) or [])
+            langs  = norm(lang_s)
+            gender = norm(getattr(v, "gender", ""))  # often "VoiceGenderFemale"/"female"
+
+            s = 0
+            if "female" in gender or "female" in name: s += 3
+            if "en-gb" in langs or "gb" in name or "united kingdom" in name or "great britain" in name: s += 3
+            if "english" in name or "en" in langs: s += 2
+            # very old SAPI names:
+            if "hazel" in name: s += 2  # Hazel = en-GB female on many Windows installs
+            if "zira"  in name: s += 1  # Zira  = en-US female
+            return s
+
         chosen = None
-        for v in voices:
-            name = (getattr(v, "name", "") or "").lower()
-            langs = ",".join(getattr(v, "languages", []) or []).lower()
-            if ("english" in name or "en" in langs) and ("gb" in name or "uk" in name or "gb" in langs or "uk" in langs):
-                chosen = v.id
-                break
-        if chosen:
-            engine.setProperty("voice", chosen)
+        if voices:
+            chosen = max(voices, key=score)
+            engine.setProperty("voice", chosen.id)
+
+        # Make cadence a bit closer to neural female
+        try:
+            rate = engine.getProperty("rate") or 200
+            engine.setProperty("rate", int(rate * 1.05))  # +5%
+        except Exception:
+            pass
     except Exception:
+        # If anything above explodes, we’ll just use defaults
         pass
+
     engine.save_to_file(text, out_path_wav)
     engine.runAndWait()
     return out_path_wav
+
 
 # ---------------- Public API ----------------
 async def synthesize_to_file(

@@ -1,92 +1,119 @@
-/* Root tokens for the Glass Aurora – Black + Purple theme */
+/* Glass Aurora — Black + Purple */
+:root,
 [data-theme="glass-aurora-purple"] {
-  --bg: #0a0a0e;
-  --surface: rgba(255,255,255,.06);
-  --card: rgba(255,255,255,.05);
-  --border: rgba(255,255,255,.12);
+  /* Core tokens */
+  --bg: #0c0c16;
+  --surface: rgba(255, 255, 255, 0.065); /* main panel */
+  --card:    rgba(255, 255, 255, 0.045); /* inner cards */
+  --border:  rgba(255, 255, 255, 0.12);
   --text: #f4f4f7;
-  --muted: #bfbfd1;
-  /* ... */
+  --muted:#bfbfd1;
 
-
-  /* purple system */
+  /* Purple system */
   --pri-50:#f5e9ff; --pri-200:#d9b8ff; --pri-400:#b787ff;
   --pri-500:#9f6aff; --pri-600:#8d4dff; --pri-700:#7137f6;
 
-  /* glows */
+  /* Glows / rings */
   --glow-outer: 0 0 40px rgba(159,106,255,.24);
-  --glow-ring: 0 0 0 1px rgba(159,106,255,.45) inset;
+  --glow-ring:  0 0 0 1px rgba(159,106,255,.45) inset;
 }
 
-/* Aurora backdrop helper */
+/* Aurora backdrop on page root */
 .ga-aurora {
   position: relative;
+  isolation: isolate;           /* keep pseudo background behind */
   background: var(--bg);
+  color: var(--text);
 }
 .ga-aurora::before {
-  content:"";
-  position:absolute; inset:-10%;
+  content: "";
+  position: absolute; inset: -10%;
   background:
-    radial-gradient(40% 30% at 80% 10%, rgba(159,106,255,.18), transparent 60%),
-    radial-gradient(30% 25% at 10% 90%, rgba(111,77,255,.16), transparent 60%),
-    radial-gradient(45% 35% at 35% 20%, rgba(199,160,255,.10), transparent 60%);
-  filter: blur(20px) saturate(120%);
-  pointer-events:none;
-  z-index:0;
+    radial-gradient(40% 30% at 78% 8%,  rgba(159,106,255,0.20), transparent 60%),
+    radial-gradient(30% 25% at 10% 92%, rgba(111, 77,255,0.18), transparent 60%),
+    radial-gradient(45% 35% at 35% 20%, rgba(199,160,255,0.10), transparent 60%);
+  filter: blur(22px) saturate(118%);
+  pointer-events: none;
+  z-index: -1;
 }
 
-/* Glass cards & panels */
-.ga-card {
-  background: var(--card);
-  border: 1px solid var(--border);
-  backdrop-filter: blur(16px);
-  border-radius: 1rem;
-  box-shadow: var(--glow-outer);
-}
+/* Panels & cards */
 .ga-panel {
   background: var(--surface);
   border: 1px solid var(--border);
   backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   border-radius: 1rem;
 }
-
-/* Neon-minimal buttons on glass */
-.ga-btn {
-  display:inline-flex; align-items:center; justify-content:center;
-  padding: .5rem .8rem; border-radius: .8rem;
-  border:1px solid var(--border);
-  background: rgba(255,255,255,.04);
-  box-shadow: var(--glow-ring);
-  color: var(--text);
-  transition: transform .15s ease, box-shadow .15s ease, background .15s ease;
+.ga-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-radius: 1rem;
+  box-shadow: var(--glow-outer);
 }
-.ga-btn:hover { background: rgba(255,255,255,.07); transform: translateY(-1px); }
-.ga-btn:active { transform: translateY(0); }
 
-/* Primary outline accent */
+/* Outline accent (subtle neon edge) */
 .ga-outline {
   border: 1px solid rgba(159,106,255,.55);
   box-shadow: var(--glow-ring), var(--glow-outer);
 }
 
+/* Buttons on glass */
+.ga-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: .5rem .8rem;
+  border-radius: .8rem;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.08);
+  box-shadow: var(--glow-ring);
+  color: var(--text);
+  transition: transform .15s ease, box-shadow .15s ease, background .15s ease;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+.ga-btn:hover { background: rgba(255,255,255,0.11); transform: translateY(-1px); }
+.ga-btn:active { transform: translateY(0); }
+
 /* Inputs */
 .ga-input {
-  background: rgba(255,255,255,.05);
+  background: rgba(255,255,255,0.06);
   border: 1px solid var(--border);
   color: var(--text);
   border-radius: .8rem;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
 .ga-input::placeholder { color: var(--muted); }
 
-/* Text */
+/* Text helpers */
 .ga-h1 { color: var(--text); font-weight: 700; letter-spacing: .2px; }
 .ga-subtle { color: var(--muted); }
 
-/* Optional: make shimmer & typing dots match purple */
-.reya-shimmer { /* you already added this class earlier */
-  background-image: linear-gradient(90deg,
+/* “Thinking” shimmer + typing dots themed to purple */
+.reya-shimmer {
+  position: relative; overflow: hidden;
+  background-image: linear-gradient(
+    90deg,
     rgba(198,177,255,0.06) 0%,
-    rgba(198,177,255,0.20) 20%,
-    rgba(198,177,255,0.06) 40%);
+    rgba(198,177,255,0.22) 22%,
+    rgba(198,177,255,0.06) 44%
+  );
+  background-size: 200% 100%;
+  animation: reyaShimmer 1.6s linear infinite;
 }
-.typing-dot { background:#c6b1ff; }
+@keyframes reyaShimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.typing-dot { background: #c6b1ff; }  /* readable on dark glass */
+
+/* Optional: a class you can put on any container to guarantee glass */
+.glass {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border-radius: 1rem;
+}
