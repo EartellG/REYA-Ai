@@ -31,6 +31,7 @@ pypiwin32==223
 python-Levenshtein==0.27.1
 pyttsx3==2.98
 pywin32==310
+Pillow
 RapidFuzz==3.13.0
 readability-lxml==0.8.4.1
 requests==2.32.3

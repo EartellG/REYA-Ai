@@ -22,7 +22,7 @@ from backend.routes.roles_coder import router as roles_coder_router
 from backend.routes.roles_reviewer import router as roles_reviewer_router
 from backend.routes.roles_fixer import router as roles_fixer_router
 from backend.routes.roles_monetizer import router as roles_monetizer_router
-
+from backend.routes.wireframes import router as wireframes_router  
 
 
 
@@ -74,6 +74,7 @@ app.include_router(roles_coder_router)
 app.include_router(roles_reviewer_router)
 app.include_router(roles_fixer_router)
 app.include_router(roles_monetizer_router)
+app.include_router(wireframes_router)
 
 # -----------------------
 # Static files for audio
