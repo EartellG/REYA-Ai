@@ -7,6 +7,7 @@ import { useToast } from "@/components/ui/use-toast";
 import FileDropzone from "@/components/ui/FileDropzone";
 import QuickFixPR from "@/components/ui/QuickFixPR";
 import WireframesPanel from "@/features/wireframes/WireframesPanel";
+import { useProjectDiscussions } from "@/state/projectDiscussions";
 
 import {
   planProject,
@@ -39,6 +40,10 @@ export default function ProjectsGrid() {
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [polling, setPolling] = useState(false);
   const pollRef = useRef<number | null>(null);
+
+  // Optional: jump to Chat → Project Discussions after Plan
+  const [openDiscussAfterPlan, setOpenDiscussAfterPlan] = useState(true);
+  const createThread = useProjectDiscussions(s => s.createThread);
 
   const canDownload = useMemo(
     () => status?.phase === "done" && !!projectId,
@@ -88,6 +93,23 @@ export default function ProjectsGrid() {
         description: "Architect produced a spec and task list.",
         variant: "success",
       });
+
+      // ⬇️ Optional hookup: open Project Discussions thread automatically
+      if (openDiscussAfterPlan) {
+        const seed =
+          `I want to build: ${idea.trim()} (target: ${target}).\n\n` +
+          `Here’s the first draft plan from Architect:\n\n` +
+          `SPEC:\n${p.spec}\n\nTASKS:\n${p.tasks.map((t, i) => `${i + 1}. ${t}`).join("\n")}\n\n` +
+          `Can we brainstorm scope, UX, and monetization?`;
+
+        const threadId = createThread(idea.trim(), seed);
+
+        window.dispatchEvent(
+          new CustomEvent("reya:navigate", {
+            detail: { tab: "chat", chatSub: "discuss", openThreadId: threadId },
+          })
+        );
+      }
     } catch (e) {
       console.error(e);
       toast({
@@ -181,6 +203,7 @@ export default function ProjectsGrid() {
   return (
     <div className="p-6 space-y-4">
       <WireframesPanel />
+
       <h2 className="text-2xl font-bold">📁 Projects</h2>
       <p className="text-zinc-400">
         Turn an idea into a runnable scaffold, watch build logs, then download a zip.
@@ -192,9 +215,7 @@ export default function ProjectsGrid() {
           <div className="flex flex-col sm:flex-row gap-2">
             <Input
               value={idea}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                setIdea(e.target.value)
-              }
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setIdea(e.target.value)}
               placeholder="Describe your app idea (e.g., 'AI Pomodoro with calendar sync')"
               className="flex-1"
             />
@@ -214,13 +235,21 @@ export default function ProjectsGrid() {
             </Button>
           </div>
 
+          {/* Optional toggle */}
+          <label className="flex items-center gap-2 text-sm opacity-80">
+            <input
+              type="checkbox"
+              checked={openDiscussAfterPlan}
+              onChange={(e) => setOpenDiscussAfterPlan(e.target.checked)}
+            />
+            Open a Project Discussion after planning
+          </label>
+
           {plan && (
             <div className="grid md:grid-cols-2 gap-3">
               <div className="bg-gray-800 rounded p-3">
                 <h3 className="font-semibold mb-2">Spec</h3>
-                <pre className="whitespace-pre-wrap text-sm text-zinc-200">
-                  {plan.spec}
-                </pre>
+                <pre className="whitespace-pre-wrap text-sm text-zinc-200">{plan.spec}</pre>
               </div>
               <div className="bg-gray-800 rounded p-3">
                 <h3 className="font-semibold mb-2">Tasks</h3>
@@ -244,7 +273,6 @@ export default function ProjectsGrid() {
                   variant="outline"
                   onClick={async () => {
                     try {
-                      // Example seed files; later we’ll replace with LLM output
                       const files: BatchFile[] = [
                         {
                           path: "README.md",
@@ -343,10 +371,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(<App />);`,
             Drop a ZIP or multiple files. REYA will summarize issues and suggest fixes.
           </p>
 
-          <FileDropzone
-            onFiles={handleUpload}
-            accept=".zip,.ts,.tsx,.js,.py,.json,.md"
-          />
+          <FileDropzone onFiles={handleUpload} accept=".zip,.ts,.tsx,.js,.py,.json,.md" />
 
           <div className="flex items-center gap-2">
             <Button onClick={handleReview} disabled={!uploadId}>

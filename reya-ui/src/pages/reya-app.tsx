@@ -1,10 +1,9 @@
-// src/pages/reya-app.tsx
 import { useState, useEffect, useLayoutEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarImage } from "@/components/ui/avatar";
 import Sidebar, { type TabKey } from "@/components/ui/sidebar";
 import ProjectsGrid from "@/components/ui/ProjectsGrid";
-import ChatPanel from "@/components/ui/ChatPanel";
+import ChatPage from "@/tabs/ChatPage";
 import LogicEngineTab from "@/components/ui/LogicEngineTab";
 import LiveAvatarTab from "@/components/ui/LiveAvatarTab";
 import ErrorBoundary from "@/components/ui/ErrorBoundary";
@@ -20,7 +19,7 @@ const TAB_KEYS = ["chat","projects","tutor","kb","logic","avatar","settings","ro
 const isTabKey = (v: unknown): v is TabKey => (TAB_KEYS as readonly string[]).includes(v as string);
 
 export default function REYAApp() {
-  // —— theme: make sure glass tokens are active on <html> ——
+  // —— theme: make sure glass tokens are active on <html> —— 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", "glass-aurora-purple");
   }, []);
@@ -36,6 +35,21 @@ export default function REYAApp() {
 
   const addUser = useChatStore((s) => s.addUser);
   const addAssistant = useChatStore((s) => s.addAssistant);
+
+  // listen for cross-page navigation events (no forbidden require; use dynamic import)
+  useEffect(() => {
+    const handler = async (e: Event) => {
+      const d = (e as CustomEvent).detail || {};
+      if (d.tab) setActiveTab(d.tab as TabKey);
+      if (d.openThreadId) {
+        const mod = await import("@/state/projectDiscussions");
+        // open thread via store without creating an import cycle
+        mod.useProjectDiscussions.getState().openThread(d.openThreadId as string);
+      }
+    };
+    window.addEventListener("reya:navigate", handler as EventListener);
+    return () => window.removeEventListener("reya:navigate", handler as EventListener);
+  }, []);
 
   // close drawer if we cross to desktop
   useEffect(() => {
@@ -107,7 +121,10 @@ export default function REYAApp() {
       {/* App body padded by measured topbar height so sticky bar never covers it */}
       <div style={{ paddingTop: topbarH ? 8 : 0 }} /> {/* tiny spacer to avoid flash */}
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-0 px-3 pb-6 md:px-4" style={{ marginTop: `calc(var(--topbar-h, 0px) - ${topbarH ? 8 : 0}px)` }}>
+      <div
+        className="grid grid-cols-1 lg:grid-cols-12 gap-0 px-3 pb-6 md:px-4"
+        style={{ marginTop: `calc(var(--topbar-h, 0px) - ${topbarH ? 8 : 0}px)` }}
+      >
         {/* SIDEBAR — keep it single-wrapped to avoid the “double glow” look */}
         <aside className="lg:col-span-2">
           <Sidebar
@@ -130,7 +147,7 @@ export default function REYAApp() {
           >
             <div className="ga-panel ga-outline rounded-2xl p-3 sm:p-4">
               {activeTab === "projects" && <ProjectsGrid />}
-              {activeTab === "chat" && <ChatPanel />}
+              {activeTab === "chat" && <ChatPage />}
               {activeTab === "avatar" && <LiveAvatarTab />}
               {activeTab === "logic" && <LogicEngineTab />}
               {activeTab === "tutor" && <LanguageTutorPanel />}
