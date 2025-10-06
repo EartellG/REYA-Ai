@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 
 interface SpecInput {
   title: string;
@@ -31,6 +31,10 @@ export default function TicketizerPanel() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // --- NEW: coder handoff state ---
+  const [selectedTicketId, setSelectedTicketId] = useState<string>("");
+  const [handoffStatus, setHandoffStatus] = useState<string>("");
+
   // Prefill from Projects → “Send to Ticketizer”
   useEffect(() => {
     const seedRaw = localStorage.getItem("ticketizer:seed");
@@ -47,8 +51,17 @@ export default function TicketizerPanel() {
     }
   }, []);
 
+  // Auto-select first ticket when results arrive
+  useEffect(() => {
+    if (result?.tickets?.length) {
+      setSelectedTicketId(result.tickets[0].id);
+    } else {
+      setSelectedTicketId("");
+    }
+  }, [result]);
+
   const submit = async () => {
-    setLoading(true); setError(null);
+    setLoading(true); setError(null); setHandoffStatus("");
     try {
       const res = await fetch("/roles/pm/ticketize", {
         method: "POST",
@@ -85,6 +98,72 @@ export default function TicketizerPanel() {
     await navigator.clipboard.writeText(toMarkdown(result));
     alert("Copied PRD/Tickets to clipboard as Markdown.");
   };
+
+  // --- NEW: build a payload for Coder from either selected ticket or the raw form ---
+  const selectedTicket: Ticket | null = useMemo(() => {
+    if (!result?.tickets?.length) return null;
+    return result.tickets.find(t => t.id === selectedTicketId) || result.tickets[0];
+  }, [result, selectedTicketId]);
+
+  async function sendToCoder() {
+    try {
+      setHandoffStatus("Sending to Coder…");
+
+      // If we don’t have generated tickets yet, create a minimalist one from the form
+      const fallbackTicket: Ticket = {
+        id: crypto.randomUUID(),
+        title: form.title || "Untitled ticket",
+        type: "Frontend",
+        estimate: 1,
+        acceptance_criteria: [
+          "Implements described goal",
+          "Meets constraints",
+          "Includes basic tests (if applicable)",
+        ],
+        tags: ["ticketizer", "manual"],
+      };
+
+      const t = selectedTicket ?? fallbackTicket;
+
+      const payload = {
+        ticket: {
+          id: t.id,
+          title: t.title,
+          type: t.type,
+          estimate: t.estimate,
+          acceptance_criteria: t.acceptance_criteria,
+          tags: t.tags,
+          // Provide a concise summary for the Coder prompt
+          summary: form.goal || result?.epic || t.title,
+          context: form.background || "",
+        },
+        // Hints: tweak to your defaults; these are just sensible starting points
+        language: "TypeScript",
+        framework: "React",
+        target_dir: "reya-ui/src/components",
+      };
+
+      const res = await fetch("/tickets/send_to_coder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const detail = await res.text().catch(() => res.statusText);
+        throw new Error(`HTTP ${res.status} ${detail}`);
+      }
+
+      const data = await res.json().catch(() => ({}));
+      if (data?.ok) {
+        setHandoffStatus("Ticket sent to Coder ✅");
+      } else {
+        setHandoffStatus(data?.message || "Handoff returned without ok=true.");
+      }
+    } catch (e: any) {
+      setHandoffStatus(`⚠️ ${e.message || "Failed to send to Coder"}`);
+    }
+  }
 
   return (
     <div className="p-4 space-y-4">
@@ -127,21 +206,33 @@ export default function TicketizerPanel() {
           </label>
         </div>
 
-        <button
-          onClick={submit}
-          disabled={loading}
-          className="px-3 py-2 rounded bg-black text-white"
-        >
-          {loading ? "Generating…" : "Generate tickets"}
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={submit}
+            disabled={loading}
+            className="px-3 py-2 rounded bg-black text-white"
+          >
+            {loading ? "Generating…" : "Generate tickets"}
+          </button>
+
+          {/* NEW: Send to Coder is always available; uses selected ticket if present */}
+          <button
+            onClick={sendToCoder}
+            className="px-3 py-2 rounded border"
+            title="Send selected ticket (or a minimal ticket from the form) to the Coder panel"
+          >
+            Send to Coder
+          </button>
+        </div>
 
         {error && <div className="text-red-600 text-sm">{error}</div>}
+        {!!handoffStatus && <div className="text-sm text-zinc-600">{handoffStatus}</div>}
       </div>
 
       {result && (
         <div className="space-y-3">
           <h3 className="text-lg font-semibold">Epic</h3>
-          <div className="p-3 border rounded bg-white text-black">{result.epic}</div>
+          <div className="p-3 border rounded bg-white text-black whitespace-pre-wrap">{result.epic}</div>
 
           <h3 className="text-lg font-semibold">User Stories</h3>
           <ul className="list-disc pl-6">
@@ -152,10 +243,33 @@ export default function TicketizerPanel() {
             ))}
           </ul>
 
-          <h3 className="text-lg font-semibold">Tickets</h3>
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-lg font-semibold">Tickets</h3>
+            {/* NEW: quick selector to choose which ticket to send */}
+            {result.tickets.length > 0 && (
+              <label className="text-sm flex items-center gap-2">
+                <span>Select for Coder:</span>
+                <select
+                  className="border rounded p-1"
+                  value={selectedTicketId}
+                  onChange={(e) => setSelectedTicketId(e.target.value)}
+                >
+                  {result.tickets.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.title}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </div>
+
           <div className="grid md:grid-cols-2 gap-3">
             {result.tickets.map((t) => (
-              <div key={t.id} className="border rounded p-3">
+              <div
+                key={t.id}
+                className={`border rounded p-3 ${selectedTicketId === t.id ? "ring-2 ring-blue-500" : ""}`}
+              >
                 <div className="text-sm uppercase opacity-70">{t.type}</div>
                 <div className="font-medium">{t.title}</div>
                 <div className="text-xs opacity-70">
