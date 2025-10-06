@@ -4,7 +4,6 @@ import edge_tts
 CANDIDATES = [
     "en-GB-SoniaNeural",  # your first choice
     "en-GB-LibbyNeural",
-    "en-GB-MiaNeural",
     "en-GB-SophieNeural",
     "en-GB-SusanNeural",
     "en-US-AriaNeural",   # safe female fallbacks

@@ -27,7 +27,7 @@ reya = ReyaPersonality(
     traits=[TRAITS["stoic"], TRAITS["playful"]],
     mannerisms=[MANNERISMS["sassy"], MANNERISMS["meta_awareness"]],
     style=STYLES["oracle"],
-    voice="en-GB-MiaNeural",
+    voice="en-GB-SoniaNeural",
     preset={"rate": "+14%", "pitch": "-5Hz", "volume": "+0%"},
 )
 

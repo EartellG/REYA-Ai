@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -28,6 +28,11 @@ type QuizPayload = {
   options: string[];
 };
 
+const VOICES: Record<"Japanese" | "Mandarin", string[]> = {
+  Japanese: ["ja-JP-NanamiNeural", "ja-JP-AoiNeural", "ja-JP-MayuNeural"],
+  Mandarin: ["zh-CN-XiaoxiaoNeural", "zh-CN-YunxiNeural", "zh-CN-XiaoyiNeural"],
+};
+
 export default function LanguageTutorPanel() {
   const [language, setLanguage] = useState<"Japanese" | "Mandarin">("Japanese");
   const [progress, setProgress] = useState<Progress | null>(null);
@@ -40,12 +45,17 @@ export default function LanguageTutorPanel() {
   const [score, setScore] = useState<number | null>(null);
   const [hint, setHint] = useState<string>("");
 
-  const phonetic = (text: string) =>
-    language === "Japanese" ? toRomaji(text) : pinyin(text, { toneType: "mark" });
+  // Voice Test state
+  const defaultVoice = () => (language === "Japanese" ? "ja-JP-NanamiNeural" : "zh-CN-XiaoxiaoNeural");
+  const defaultSample = () => (language === "Japanese" ? "こんにちは" : "你好");
+  const [testVoice, setTestVoice] = useState<string>(defaultVoice());
+  const [testText, setTestText] = useState<string>(defaultSample());
+  const [testing, setTesting] = useState<boolean>(false);
 
-  const defaultVoice = () =>
-    language === "Japanese" ? "ja-JP-NanamiNeural" : "zh-CN-XiaoxiaoNeural";
+  // Persistent audio element in the DOM (more reliable than new Audio())
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
+  // Load progress
   useEffect(() => {
     (async () => {
       try {
@@ -55,6 +65,74 @@ export default function LanguageTutorPanel() {
     })();
   }, [language]);
 
+  // Reset voice test defaults when language changes
+  useEffect(() => {
+    setTestVoice(defaultVoice());
+    setTestText(defaultSample());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [language]);
+
+  const phonetic = (text: string) =>
+    language === "Japanese" ? toRomaji(text) : pinyin(text, { toneType: "symbol" });
+
+  // ---- Robust play helper: try direct streaming src first, then blob fallback
+  const playFromEndpoint = async (endpointUrl: string) => {
+    if (!audioRef.current) return;
+    const a = audioRef.current;
+    a.muted = false;
+    a.volume = 1.0;
+    a.autoplay = false;
+
+    // Strategy A: direct src (best for gesture policies)
+    try {
+      a.src = `${endpointUrl}${endpointUrl.includes("?") ? "&" : "?"}_ts=${Date.now()}`;
+      a.load(); // ensure ready to start
+      await a.play();
+      return true;
+    } catch (eA) {
+      console.warn("Direct play failed, trying blob:", eA);
+    }
+
+    // Strategy B: blob fallback
+    try {
+      const res = await fetch(endpointUrl);
+      // Read headers for debug
+      const engine = res.headers.get("X-REYA-TTS-Engine") || "";
+      const vname = res.headers.get("X-REYA-TTS-Voice") || "";
+      console.log("[TutorVoice] Backend headers:", { engine, voice: vname, status: res.status });
+
+      const blob = await res.blob();
+      if (blob.size === 0) throw new Error("Empty audio blob");
+      const url = URL.createObjectURL(blob);
+      a.src = url;
+      a.load();
+      await a.play();
+      // Revoke later to keep playing
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      return true;
+    } catch (eB) {
+      console.error("Blob play also failed:", eB);
+      return false;
+    }
+  };
+
+  // === Tutor Voice Test ===
+  const testTutorVoice = async () => {
+    setTesting(true);
+    try {
+      const url = `${API}/tutor/test_voice?text=${encodeURIComponent(testText)}&voice=${encodeURIComponent(testVoice)}`;
+      const ok = await playFromEndpoint(url);
+      if (!ok) {
+        setStatus("⚠️ Couldn’t start audio. Click again, or try another browser/device output.");
+      } else {
+        setStatus("");
+      }
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  // === Lesson helpers (unchanged) ===
   const startLesson = async (level: "beginner" | "intermediate" | "advanced") => {
     setStatus("Starting lesson…");
     setQuiz(null);
@@ -127,19 +205,18 @@ export default function LanguageTutorPanel() {
     }
   };
 
-  // === Pronunciation scoring ===
+  // Pronunciation scoring
   const onSpeech = (heard: string) => {
     setSpoken(heard);
     if (!quiz) return;
 
-    const targetDisplay = quiz.native || quiz.question; // what the learner should say
+    const targetDisplay = quiz.native || quiz.question;
     const targetPhon = toPhonetic(targetDisplay, language);
     const heardPhon = normalizeLatin(heard);
 
-    const s = similarity(targetPhon, heardPhon); // 0..1
+    const s = similarity(targetPhon, heardPhon);
     setScore(s);
 
-    // Simple hints
     if (s >= 0.92) setHint("Excellent! Sounds right.");
     else if (s >= 0.80) setHint("Good! A few sounds were off—try again, slower.");
     else if (s >= 0.65) setHint("Close. Focus on syllable lengths and tones.");
@@ -148,6 +225,9 @@ export default function LanguageTutorPanel() {
 
   return (
     <div className="p-6 space-y-4">
+      {/* Hidden but persistent audio element */}
+      <audio ref={audioRef} className="hidden" />
+
       {/* Resume banner */}
       {progress?.last_level && progress?.last_lesson_id && (
         <Card className="border border-teal-600/40 bg-teal-950/30">
@@ -182,6 +262,37 @@ export default function LanguageTutorPanel() {
         <Button variant="outline" onClick={getQuiz}>Quiz me</Button>
       </div>
 
+      {/* Voice Test */}
+      <Card className="border border-zinc-800">
+        <CardContent className="py-4 space-y-3">
+          <div className="font-semibold">Tutor Voice Test</div>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="w-64">
+              <Select value={testVoice} onValueChange={setTestVoice}>
+                <SelectTrigger><SelectValue placeholder="Select voice" /></SelectTrigger>
+                <SelectContent>
+                  {VOICES[language].map(v => (
+                    <SelectItem key={v} value={v}>{v}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Input
+              className="flex-1 min-w-[220px]"
+              value={testText}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTestText(e.target.value)}
+              placeholder={language === "Japanese" ? "テキストを入力..." : "输入文本…"}
+            />
+            <Button onClick={testTutorVoice} disabled={testing}>
+              {testing ? "Testing…" : "Test Voice"}
+            </Button>
+          </div>
+          <div className="text-xs text-zinc-400">
+            If you still hear nothing, try clicking twice, make sure the tab is focused, and check Windows Sound → that your browser output device isn’t muted or routed elsewhere.
+          </div>
+        </CardContent>
+      </Card>
+
       {status && <div className="text-sm text-zinc-300">{status}</div>}
 
       {/* Quiz */}
@@ -200,7 +311,6 @@ export default function LanguageTutorPanel() {
               <PronounceButton text={quiz.native || quiz.question} voice={defaultVoice()} />
             </div>
 
-            {/* Multiple choice */}
             <div className="flex gap-2 flex-wrap">
               {quiz.options.map(opt => (
                 <Button key={opt} variant={answer === opt ? "default" : "outline"} onClick={() => setAnswer(opt)}>
@@ -210,19 +320,17 @@ export default function LanguageTutorPanel() {
             </div>
 
             <div className="flex gap-2 items-center">
-  <Input
-    placeholder="Or type your answer…"
-    value={answer}
-    onChange={(e) => setAnswer(e.target.value)}
-    className="flex-1"
-  />
-  <Button onClick={checkAnswer} className="px-3 py-1 text-sm">
-    Check
-  </Button>
-</div>
+              <Input
+                placeholder="Or type your answer…"
+                value={answer}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAnswer(e.target.value)}
+                className="flex-1"
+              />
+              <Button onClick={checkAnswer} className="px-3 py-1 text-sm">
+                Check
+              </Button>
+            </div>
 
-
-            {/* Pronunciation Check */}
             <div className="mt-2 rounded border border-zinc-800 p-3 bg-zinc-900/40">
               <div className="flex items-center justify-between gap-2">
                 <div className="text-sm font-medium">Pronunciation</div>
@@ -244,7 +352,7 @@ export default function LanguageTutorPanel() {
                   <div className="text-zinc-400">You said:</div>
                   <div className="text-zinc-200">{spoken}</div>
                   <div className="text-xs text-zinc-400">
-                    {language === "Japanese" ? toRomaji(spoken) : pinyin(spoken, { toneType: "mark" })}
+                    {language === "Japanese" ? toRomaji(spoken) : pinyin(spoken, { toneType: "symbol" })}
                   </div>
                 </div>
               )}
@@ -260,7 +368,6 @@ export default function LanguageTutorPanel() {
         </Card>
       )}
 
-      {/* Progress & sample vocab */}
       {progress && (
         <Card>
           <CardContent className="py-4">
