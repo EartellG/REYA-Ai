@@ -7,13 +7,13 @@ import traceback
 import importlib
 from pathlib import Path
 from typing import Optional
-
 from dotenv import load_dotenv
 
 from fastapi import FastAPI, Request, Query, Body, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from backend.routes.tickets import router as tickets_router 
 
 # ---- Load environment early (backend/.env then project root .env)
 ENV_HERE = Path(__file__).resolve().parent / ".env"
@@ -86,6 +86,7 @@ app.include_router(roles_reviewer_router)
 app.include_router(roles_fixer_router)
 app.include_router(roles_monetizer_router)
 app.include_router(wireframes_router)
+app.include_router(tickets_router)
 
 # ---- Boot log
 logging.getLogger("uvicorn.error").info(f"[REYA] Python: {sys.executable}")
