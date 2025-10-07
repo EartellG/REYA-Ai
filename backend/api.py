@@ -43,7 +43,9 @@ from backend.features.advanced_features import ContextualMemory
 from backend.features.advanced_features import PersonalizedKnowledgeBase
 from backend.features.language_tutor import LanguageTutor
 
+#----------------------
 from backend.routes.settings import router as settings_router
+from backend.routes.reviewer_prefill import router as reviewer_prefill_router
 from backend.routes.voice_router import router as voice_router
 from backend.routes.tts import router as tts_router
 from backend.routes.tts import debug_router as tts_debug_router
@@ -87,6 +89,7 @@ app.include_router(roles_fixer_router)
 app.include_router(roles_monetizer_router)
 app.include_router(wireframes_router)
 app.include_router(tickets_router)
+app.include_router(reviewer_prefill_router)
 
 # ---- Boot log
 logging.getLogger("uvicorn.error").info(f"[REYA] Python: {sys.executable}")
