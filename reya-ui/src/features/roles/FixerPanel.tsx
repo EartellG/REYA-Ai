@@ -265,8 +265,7 @@ export default function FixerPanel() {
     <Card className="ga-panel ga-outline">
       <CardContent className="space-y-4 p-4">
         <div className="flex items-center justify-between">
-          <h2 className="font-semibold">Fixer 🔧</h2>
-        </div>
+          </div>
 
         {status && <div className="text-sm ga-subtle">{status}</div>}
         {error && <div className="text-sm text-red-600">{error}</div>}

@@ -198,7 +198,6 @@ export default function CoderPanel() {
     <Card className="ga-panel ga-outline">
       <CardContent className="space-y-4 p-4">
         <div className="flex items-center justify-between">
-          <h2 className="font-semibold">Coder 👩‍💻</h2>
         </div>
 
         {status && <div className="text-sm ga-subtle">{status}</div>}
