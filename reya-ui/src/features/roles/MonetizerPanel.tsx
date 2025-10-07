@@ -1,3 +1,4 @@
+/* eslint-disable react/react-in-jsx-scope */
 import { useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -26,7 +27,6 @@ export default function MonetizerPanel() {
   return (
     <Card className="ga-panel ga-outline">
       <CardContent className="space-y-3 p-4">
-        <h2 className="font-semibold">Monetizer 💰</h2>
         <p className="text-sm ga-subtle">
           <b>How to use:</b> Provide the idea + audience (and optional feature list) → get pricing tiers and monetization options.
         </p>

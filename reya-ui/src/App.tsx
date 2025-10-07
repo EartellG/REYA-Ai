@@ -1,3 +1,4 @@
+/* eslint-disable react/react-in-jsx-scope */
 // src/App.tsx
 import { useState } from "react";
 import { ModesProvider } from "@/state/modes";

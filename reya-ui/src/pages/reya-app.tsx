@@ -81,16 +81,18 @@ export default function REYAApp() {
   return (
     <div className="min-h-[100dvh] text-white ga-aurora">
       {/* TOPBAR (no overlap: we add padding to the app below) */}
-      <div ref={topbarRef} className="sticky top-0 z-50 px-3 py-2 md:px-4">
-        <div className="ga-panel ga-outline rounded-2xl px-3 py-2 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <button
-              className="lg:hidden inline-flex h-10 w-10 items-center justify-center rounded-xl ga-btn"
-              onClick={() => setNavOpen(v => !v)}
-              aria-label="Toggle navigation"
-            >
-              ☰
-            </button>
+      <div ref={topbarRef} className="top-0 z-50 px-3 py-1.5 md:px-4">
+  <div className="ga-panel ga-outline rounded-2xl px-3 py-1.5 flex items-center justify-between">
+    <div className="flex items-center gap-2.5">
+      <div className="lg:hidden">
+      <button
+        className="inline-flex h-9 w-9 items-center justify-center rounded-xl ga-btn"
+        onClick={() => setNavOpen(v => !v)}
+        aria-label="Toggle navigation"
+      >
+        ☰
+      </button>
+      </div>
             <div className="flex items-center gap-2">
               <Avatar className="h-8 w-8">
                 <AvatarImage src="/ReyaAva.png" alt="REYA" />
@@ -99,7 +101,7 @@ export default function REYAApp() {
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
             <VoiceController
               onTranscript={async (t) => {
                 addUser(t);

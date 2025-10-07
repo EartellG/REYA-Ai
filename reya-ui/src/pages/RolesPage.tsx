@@ -1,4 +1,5 @@
 // src/pages/RolesPage.tsx
+/* eslint react/react-in-jsx-scope: "off" */
 import TicketizerPanel from "@/features/roles/TicketizerPanel";
 import CoderPanel from "@/features/roles/CoderPanel";
 import ReviewerPanel from "@/features/roles/ReviewerPanel";
@@ -11,7 +12,6 @@ export default function RolesPage() {
     <div className="container mx-auto max-w-5xl space-y-6">
       <h1 className="text-2xl font-bold">REYA Roles</h1>
 
-      {/* Ticketizer */}
       <Card className="ga-panel ga-outline">
         <CardContent className="p-4">
           <h2 className="font-semibold mb-2">Ticketizer 🎟️</h2>
@@ -19,7 +19,6 @@ export default function RolesPage() {
         </CardContent>
       </Card>
 
-      {/* Monetizer */}
       <Card className="ga-panel ga-outline">
         <CardContent className="p-4">
           <h2 className="font-semibold mb-2">Monetizer 💰</h2>
@@ -27,7 +26,6 @@ export default function RolesPage() {
         </CardContent>
       </Card>
 
-      {/* Coder */}
       <Card className="ga-panel ga-outline">
         <CardContent className="p-4">
           <h2 className="font-semibold mb-2">Coder 👩‍💻</h2>
@@ -35,7 +33,6 @@ export default function RolesPage() {
         </CardContent>
       </Card>
 
-      {/* Reviewer */}
       <Card className="ga-panel ga-outline">
         <CardContent className="p-4">
           <h2 className="font-semibold mb-2">Reviewer 🔍</h2>
@@ -43,7 +40,6 @@ export default function RolesPage() {
         </CardContent>
       </Card>
 
-      {/* Fixer */}
       <Card className="ga-panel ga-outline">
         <CardContent className="p-4">
           <h2 className="font-semibold mb-2">Fixer 🔧</h2>
