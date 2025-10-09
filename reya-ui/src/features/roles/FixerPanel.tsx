@@ -60,7 +60,7 @@ export default function FixerPanel() {
   const [suggestSummary, setSuggestSummary] = useState<string>("");
   const [applyResult, setApplyResult] = useState<ApplyResp | null>(null);
 
-  // new: save results
+  // save results
   const [saveSummary, setSaveSummary] = useState<string>("");
   const [filesWritten, setFilesWritten] = useState<string[]>([]);
   const [saveErrors, setSaveErrors] = useState<string[]>([]);
@@ -152,12 +152,10 @@ export default function FixerPanel() {
       return;
     }
 
-    // Try as issues first; if array items look like legacy findings, backend accepts that too.
     const maybeIssues = parseJSON<any[]>("Issues/Findings", issuesJSON) || [];
 
     const body: SuggestReq = { files, strategy };
 
-    // Heuristic: decide issues vs findings
     if (maybeIssues.some((x) => typeof x?.message === "string" || x?.file)) {
       body.issues = maybeIssues as ReviewIssue[];
     } else if (maybeIssues.some((x) => Array.isArray(x?.notes) && x?.path)) {
@@ -251,7 +249,7 @@ export default function FixerPanel() {
       setSaveSummary(data.summary);
       setFilesWritten(data.files_written || []);
       setSaveErrors(data.errors || []);
-      setFilesJSON(JSON.stringify(data.files, null, 2)); // reflect written contents
+      setFilesJSON(JSON.stringify(data.files, null, 2));
       setStatus("Applied & saved ✅");
     } catch (e: any) {
       setError(e.message || "Apply & Save failed");
@@ -264,9 +262,6 @@ export default function FixerPanel() {
   return (
     <Card className="ga-panel ga-outline">
       <CardContent className="space-y-4 p-4">
-        <div className="flex items-center justify-between">
-          </div>
-
         {status && <div className="text-sm ga-subtle">{status}</div>}
         {error && <div className="text-sm text-red-600">{error}</div>}
 
@@ -321,22 +316,20 @@ export default function FixerPanel() {
               {loadingApply ? "Applying…" : "Apply (in memory)"}
             </Button>
             <Button
-              variant="secondary"
-              disabled={loadingSave || !patches?.length}
-              onClick={applyAndSave}
-              title="Apply then write files to disk"
+          variant={patches?.length ? "secondary" : "outline"}
+          disabled={loadingSave || !patches?.length}
+          onClick={applyAndSave}
             >
-              {loadingSave ? "Saving…" : "Apply & Save"}
+           {loadingSave ? "Saving…" : "Apply & Save"}
             </Button>
+
           </div>
         </div>
 
-        {/* Summary */}
         {suggestSummary && (
           <div className="text-sm bg-zinc-100 text-zinc-800 rounded p-2">{suggestSummary}</div>
         )}
 
-        {/* Patches view */}
         {patches?.length ? (
           <div className="space-y-3">
             <h3 className="text-lg font-semibold">Patches</h3>
@@ -353,7 +346,6 @@ export default function FixerPanel() {
           </div>
         ) : null}
 
-        {/* Result of apply (in memory) */}
         {applyResult && (
           <div className="space-y-3">
             <h3 className="text-lg font-semibold">Applied Files (in memory)</h3>
@@ -371,7 +363,6 @@ export default function FixerPanel() {
           </div>
         )}
 
-        {/* Result of apply & save */}
         {saveSummary && (
           <div className="space-y-2">
             <h3 className="text-lg font-semibold">Apply & Save</h3>

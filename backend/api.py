@@ -59,6 +59,8 @@ from backend.routes.roles_monetizer import router as roles_monetizer_router
 from backend.routes.wireframes import router as wireframes_router
 from backend.project_tools import router as project_tools
 from .git_tools import router as git_tools
+from backend.routes.workspace import router as workspace_router
+
 
 # LLM helpers
 from backend.llm_interface import (
@@ -92,6 +94,8 @@ app.include_router(wireframes_router)
 app.include_router(tickets_router)
 app.include_router(reviewer_prefill_router)
 app.include_router(reviewer_lint_router)
+app.include_router(workspace_router)
+
 
 # ---- Boot log
 logging.getLogger("uvicorn.error").info(f"[REYA] Python: {sys.executable}")

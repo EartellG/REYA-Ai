@@ -1,4 +1,3 @@
-// reya-ui/src/features/roles/ReviewerPanel.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -24,43 +23,76 @@ type ReviewIssue = {
 };
 
 export default function ReviewerPanel() {
-  // Simple single-file inputs (quick use)
+  // quick single-file mode
   const [path, setPath] = useState("reya-ui/src/components/Old.tsx");
   const [contents, setContents] = useState("// TODO: fix issue\nconsole.log('debug')");
 
-  // Advanced: multi-file JSON; if present, overrides single-file inputs
+  // optional multi-file JSON
   const [filesJSON, setFilesJSON] = useState<string>("");
 
   const [status, setStatus] = useState<string>("");
-  const [findings, setFindings] = useState<Finding[]>([]);
-  const [summary, setSummary] = useState<string>("");
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Optional lint
+  // Static review
+  const [findings, setFindings] = useState<Finding[]>([]);
+  const [summary, setSummary] = useState<string>("");
+
+  // Lint results
   const [lintIssues, setLintIssues] = useState<ReviewIssue[]>([]);
   const [lintStatus, setLintStatus] = useState<string>("");
 
-  // Prefill from Coder → Reviewer (localStorage)
+  const [loadingReview, setLoadingReview] = useState(false);
+  const [loadingLint, setLoadingLint] = useState(false);
+  const [clearing, setClearing] = useState(false);
+
+  // Prefill from Coder
   useEffect(() => {
     let cancelled = false;
-    try {
-      const raw = localStorage.getItem("reviewer:prefill");
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        const files: FileBlob[] = parsed?.files || [];
-        if (files.length && !cancelled) {
-          setFilesJSON(JSON.stringify(files, null, 2));
-          setPath(files[0].path);
-          setContents(files[0].contents);
-          setStatus("Loaded Coder → Reviewer handoff ✅");
+
+    async function loadPrefill() {
+      setStatus("Checking for Coder → Reviewer handoff…");
+
+      // 1) Try backend prefill (one-shot)
+      try {
+        const r = await fetch(`${API}/roles/reviewer/prefill`);
+        if (r.ok) {
+          const data = await r.json();
+          if (!cancelled && data?.prefill?.files?.length) {
+            const files = data.prefill.files as FileBlob[];
+            setFilesJSON(JSON.stringify(files, null, 2));
+            setPath(files[0].path);
+            setContents(files[0].contents);
+            setStatus("Loaded Coder → Reviewer handoff (server) ✅");
+            return;
+          }
         }
-      } else {
-        setStatus("No incoming handoff detected.");
+      } catch {
+        /* ignore; try localStorage next */
       }
-    } catch {
-      /* ignore */
+
+      // 2) Fallback: localStorage
+      try {
+        const raw = localStorage.getItem("reviewer:prefill");
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          const files: FileBlob[] = parsed?.files || [];
+          if (!cancelled && files.length) {
+            setFilesJSON(JSON.stringify(files, null, 2));
+            setPath(files[0].path);
+            setContents(files[0].contents);
+            setStatus("Loaded Coder → Reviewer handoff (local) ✅");
+            // Do NOT clear; Fixer may consume later if user bounces
+            return;
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+
+      if (!cancelled) setStatus("No incoming handoff detected.");
     }
+
+    loadPrefill();
     return () => {
       cancelled = true;
     };
@@ -70,11 +102,11 @@ export default function ReviewerPanel() {
     if (filesJSON.trim()) {
       try {
         const arr = JSON.parse(filesJSON) as FileBlob[];
-        if (!Array.isArray(arr) || arr.length === 0) {
+        if (!Array.isArray(arr) || !arr.length) {
           setError("Files JSON must be a non-empty array.");
           return null;
         }
-        const ok = arr.every((f) => f && typeof f.path === "string" && typeof f.contents === "string");
+        const ok = arr.every((f) => typeof f?.path === "string" && typeof f?.contents === "string");
         if (!ok) {
           setError("Each file must have { path: string, contents: string }.");
           return null;
@@ -94,14 +126,14 @@ export default function ReviewerPanel() {
 
   async function runReview() {
     setError(null);
-    setLoading(true);
+    setLoadingReview(true);
     setFindings([]);
     setSummary("");
     setStatus("Reviewing…");
 
     const files = parseFiles();
     if (!files) {
-      setLoading(false);
+      setLoadingReview(false);
       setStatus("Fix input errors and retry.");
       return;
     }
@@ -114,7 +146,6 @@ export default function ReviewerPanel() {
       });
       const data: ReviewReply = await res.json();
       if (!res.ok) throw new Error((data as any)?.detail || "request failed");
-
       setFindings(data.findings || []);
       setSummary(data.summary || "");
       setStatus("Review complete ✅");
@@ -122,19 +153,23 @@ export default function ReviewerPanel() {
       setError(e.message || "Review failed");
       setStatus("Review failed");
     } finally {
-      setLoading(false);
+      setLoadingReview(false);
     }
   }
 
   async function runLint() {
     setLintIssues([]);
     setLintStatus("Running lint…");
+    setLoadingLint(true);
+
+    const files = parseFiles();
+    if (!files) {
+      setLoadingLint(false);
+      setLintStatus("Fix input errors and retry.");
+      return;
+    }
+
     try {
-      const files = parseFiles();
-      if (!files) {
-        setLintStatus("Fix input errors and retry.");
-        return;
-      }
       const res = await fetch(`${API}/roles/reviewer/lint`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -146,6 +181,8 @@ export default function ReviewerPanel() {
       setLintStatus(data.summary || "Lint completed");
     } catch (e: any) {
       setLintStatus(e.message || "Lint failed");
+    } finally {
+      setLoadingLint(false);
     }
   }
 
@@ -155,32 +192,66 @@ export default function ReviewerPanel() {
       setError("Nothing to send: provide files first.");
       return;
     }
+    // Prefer issues → Fixer
     const payload = {
       files,
-      findings, // Fixer also accepts `issues`
-      notes: summary || "Findings generated by Reviewer",
+      issues: lintIssues.length ? lintIssues : undefined,
+      findings: !lintIssues.length && findings.length ? findings : undefined,
+      notes: (lintIssues.length ? lintStatus : summary) || "Findings from Reviewer",
     };
     localStorage.setItem("reviewer:prefill", JSON.stringify(payload));
     setStatus("Sent to Fixer ✅");
     window.location.hash = "#/roles?tab=fixer";
   }
 
+  // --- Dev helper: clear server prefill buffer ---
+  async function clearServerPrefill() {
+    try {
+      setClearing(true);
+      await fetch(`${API}/roles/reviewer/prefill`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}), // empty payload clears the buffer server-side
+      });
+      setStatus("Server prefill cleared.");
+    } catch {
+      setStatus("Failed to clear server prefill (network?).");
+    } finally {
+      setClearing(false);
+    }
+  }
+
   const canSend = useMemo(() => {
     const haveFiles =
-      (filesJSON.trim() && (() => { try { return Array.isArray(JSON.parse(filesJSON)); } catch { return false; } })()) ||
+      (filesJSON.trim() &&
+        (() => {
+          try {
+            return Array.isArray(JSON.parse(filesJSON));
+          } catch {
+            return false;
+          }
+        })()) ||
       !!path.trim();
-    return haveFiles && (findings.length > 0 || !!summary);
-  }, [filesJSON, path, findings.length, summary]);
+    return haveFiles && (lintIssues.length > 0 || findings.length > 0 || !!summary);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filesJSON, path, lintIssues.length, findings.length, summary]);
 
   return (
     <Card className="ga-panel ga-outline">
       <CardContent className="space-y-3 p-4">
         <div className="flex items-center justify-between">
+          <h2 className="font-semibold"></h2>
+        <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={clearServerPrefill} disabled={clearing} title="Dev: wipe server handoff buffer">
+              {clearing ? "Clearing…" : "Clear server prefill"}
+            </Button>
           </div>
+        </div>
 
         {status && <div className="text-sm ga-subtle">{status}</div>}
         {error && <div className="text-sm text-red-600">{error}</div>}
 
+        {/* Optional multi-file mode */}
         <label className="grid gap-1">
           <span className="text-sm font-medium">Files (JSON) – optional</span>
           <Textarea
@@ -193,29 +264,30 @@ export default function ReviewerPanel() {
         </label>
         <div className="text-xs ga-subtle">If JSON above is provided, it overrides the single-file inputs below.</div>
 
+        {/* Single-file quick editor */}
         <Input value={path} onChange={(e) => setPath(e.target.value)} placeholder="File path" />
         <Textarea
-          className="min-h-40 font-mono text-sm"
-          spellCheck={false}
-          value={contents}
-          onChange={(e) => setContents(e.target.value)}
-          placeholder="// paste code here"
-        />
+            className="min-h-40 font-mono text-sm"
+            spellCheck={false}
+            value={contents}
+            onChange={(e) => setContents(e.target.value)}
+            placeholder="// paste code here"
+          />
 
-        
-          <Button className="ga-btn" disabled={loading} onClick={runReview}>
-            {loading ? "Reviewing…" : "Run review"}
+        <div className="flex gap-2">
+          <Button className="ga-btn" disabled={loadingReview} onClick={runReview}>
+            {loadingReview ? "Reviewing…" : "Run review"}
           </Button>
-          <Button variant="outline" onClick={runLint}>
-            Run lint (ESLint + Ruff)
+          <Button variant="outline" disabled={loadingLint} onClick={runLint}>
+            {loadingLint ? "Linting…" : "Run lint (ESLint + Ruff)"}
           </Button>
           <Button variant="outline" disabled={!canSend} onClick={sendToFixer}>
             Send to Fixer
           </Button>
-        
+        </div>
 
+        {/* Static review summary */}
         {summary && <div className="text-sm bg-zinc-100 text-zinc-800 rounded p-2">{summary}</div>}
-
         {!!findings.length && (
           <div className="space-y-2">
             <h3 className="text-lg font-semibold">Findings</h3>
@@ -234,23 +306,39 @@ export default function ReviewerPanel() {
           </div>
         )}
 
+        {/* Lint issues table */}
         {!!lintIssues.length && (
           <div className="space-y-2">
             <h3 className="text-lg font-semibold">Lint Issues</h3>
-            <div className="text-xs ga-subtle">{lintStatus}</div>
-            <div className="grid gap-2">
-              {lintIssues.map((iss, i) => (
-                <div key={i} className="border rounded p-2">
-                  <div className="text-xs font-mono bg-zinc-100 text-zinc-700 px-2 py-1 rounded">
-                    {iss.file || "(unknown file)"} • {iss.severity?.toUpperCase() || "INFO"}
-                    {typeof iss.line === "number" ? ` @${iss.line}${iss.col ? ":" + iss.col : ""}` : ""}
-                    {iss.rule ? ` • ${iss.rule}` : ""}
-                  </div>
-                  <div className="text-sm mt-1">{iss.message}</div>
-                  {iss.suggestion && <div className="text-xs mt-1 italic">Suggestion: {iss.suggestion}</div>}
-                </div>
-              ))}
+            <div className="overflow-auto rounded border">
+              <table className="w-full text-sm">
+                <thead className="bg-zinc-100 text-zinc-700">
+                  <tr>
+                    <th className="text-left p-2">File</th>
+                    <th className="text-left p-2">Line</th>
+                    <th className="text-left p-2">Col</th>
+                    <th className="text-left p-2">Severity</th>
+                    <th className="text-left p-2">Rule</th>
+                    <th className="text-left p-2">Message</th>
+                    <th className="text-left p-2">Source</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {lintIssues.map((it, i) => (
+                    <tr key={i} className="border-t">
+                      <td className="p-2 font-mono">{it.file}</td>
+                      <td className="p-2">{it.line ?? "-"}</td>
+                      <td className="p-2">{it.col ?? "-"}</td>
+                      <td className="p-2">{it.severity}</td>
+                      <td className="p-2 font-mono">{it.rule || "-"}</td>
+                      <td className="p-2">{it.message}</td>
+                      <td className="p-2">{it.source || "-"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
+            {lintStatus && <div className="text-xs ga-subtle">{lintStatus}</div>}
           </div>
         )}
       </CardContent>
