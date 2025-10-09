@@ -810,12 +810,25 @@
         {
           "native": "さようなら",
           "translated": "Goodbye"
+        },
+        {
+          "native": "勉強する",
+          "translated": "To study"
+        },
+        {
+          "native": "図書館",
+          "translated": "Library"
+        },
+        {
+          "native": "宿題",
+          "translated": "Homework"
         }
       ],
       "lessons_completed": [
-        "jp_beginner_1"
+        "jp_beginner_1",
+        "jp_intermediate_1"
       ],
-      "daily_streak": 2,
+      "daily_streak": 13,
       "last_level": "beginner",
       "last_lesson_id": "jp_beginner_1"
     },

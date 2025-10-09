@@ -1,3 +1,4 @@
+// reya-ui/src/features/roles/CoderPanel.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -21,9 +22,9 @@ type PrefillTicket = {
 };
 type PrefillPayload = {
   ticket: PrefillTicket;
-  language?: string;   // kept for future
-  framework?: string;  // kept for future
-  target_dir?: string; // kept for future
+  language?: string;
+  framework?: string;
+  target_dir?: string;
 };
 
 type CodeFile = { path: string; contents: string };
@@ -42,17 +43,16 @@ export default function CoderPanel() {
   const [prefill, setPrefill] = useState<PrefillPayload | null>(null);
   const ticket = useMemo(() => prefill?.ticket || null, [prefill]);
 
-  // UI state
   const [status, setStatus] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [overwrite, setOverwrite] = useState(false);
 
-  // Last result (and files to send to Reviewer)
+  // what we show + send to Reviewer
   const [saveResult, setSaveResult] = useState<GenAndSaveResp | null>(null);
   const [generatedFiles, setGeneratedFiles] = useState<CodeFile[] | null>(null);
 
-  // Manual mode (if no handoff exists)
+  // manual fallback
   const [manualId, setManualId] = useState("TCK-001");
   const [manualTitle, setManualTitle] = useState("Implement chat composer");
   const [manualDesc, setManualDesc] = useState("Add chat input & streaming");
@@ -63,8 +63,7 @@ export default function CoderPanel() {
 
     async function loadPrefill() {
       setStatus("Checking for Ticketizer handoff…");
-
-      // 1) Backend one-shot
+      // 1) backend one-shot
       try {
         const r = await fetch(`${API}/roles/coder/prefill`);
         if (r.ok) {
@@ -75,9 +74,9 @@ export default function CoderPanel() {
             return;
           }
         }
-      } catch {/* ignore */}
+      } catch { /* ignore */ }
 
-      // 2) LocalStorage fallback
+      // 2) localStorage fallback
       try {
         const raw = localStorage.getItem("coder:prefill");
         if (raw) {
@@ -89,7 +88,7 @@ export default function CoderPanel() {
             return;
           }
         }
-      } catch {/* ignore */}
+      } catch { /* ignore */ }
 
       if (!cancelled) setStatus("No incoming handoff found.");
     }
@@ -98,7 +97,7 @@ export default function CoderPanel() {
     return () => { cancelled = true; };
   }, []);
 
-  /** Generate + save in one call */
+  /** Generate & Save (writes to disk), and also regenerate in-memory to capture file contents for Reviewer */
   async function generateAndSave() {
     if (!ticket) {
       setError("No ticket loaded. Use Ticketizer → Send to Coder or enter one manually.");
@@ -110,39 +109,37 @@ export default function CoderPanel() {
     setLoading(true);
     setStatus("Generating and saving…");
 
-    // Tech stack is chosen server-side in this prototype; keep “fullstack” for now.
-    const body = {
-      tech_stack: "fullstack",
-      ticket: {
-        id: ticket.id,
-        title: ticket.title,
-        description: ticket.description || "",
-        files: [],
-        acceptance: ticket.acceptance_criteria || [],
-        tags: ticket.tags || [],
-      },
-      guidance: null,
-      overwrite,
+    const ticketBody = {
+      id: ticket.id,
+      title: ticket.title,
+      description: ticket.description || "",
+      files: [],
+      acceptance: ticket.acceptance_criteria || [],
+      tags: ticket.tags || [],
     };
 
     try {
+      // 1) write to disk
       const res = await fetch(`${API}/roles/coder/generate_and_save`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({
+          tech_stack: "fullstack",
+          ticket: ticketBody,
+          guidance: null,
+          overwrite,
+        }),
       });
       const data: GenAndSaveResp = await res.json();
       if (!res.ok) throw new Error(data?.summary || "Generation failed");
 
-      // For handoff to Reviewer, we also want the actual file contents (not just paths).
-      // Since generate_and_save only returns paths, we also hit /roles/coder/generate (in-memory) to fetch contents.
-      // This keeps disk writes single-pass but still lets Reviewer see exact content.
+      // 2) regenerate in memory to get file contents (for UI + Reviewer handoff)
       const regen = await fetch(`${API}/roles/coder/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           tech_stack: "fullstack",
-          ticket: body.ticket,
+          ticket: ticketBody,
           guidance: null,
         }),
       });
@@ -160,25 +157,38 @@ export default function CoderPanel() {
     }
   }
 
-  /** Send to Reviewer (localStorage handoff) */
+  /** Send to Reviewer via server prefill (fallback to localStorage if POST fails) */
   function sendToReviewer() {
-    if (!ticket) {
-      setError("No ticket loaded.");
-      return;
-    }
-    if (!generatedFiles?.length) {
-      setError("Nothing to send: generate first.");
-      return;
-    }
-    const payload = {
-      source: "coder",
-      ticket,
-      files: generatedFiles, // [{ path, contents }]
-      notes: saveResult?.summary || "Generated by Coder",
-    };
-    localStorage.setItem("reviewer:prefill", JSON.stringify(payload));
-    window.location.hash = "#/roles?tab=reviewer";
+  if (!ticket) {
+    setError("No ticket loaded.");
+    return;
   }
+  if (!generatedFiles?.length) {
+    setError("Nothing to send: generate first.");
+    return;
+  }
+
+  const payload = {
+    source: "coder",
+    ticket,
+    files: generatedFiles, // [{ path, contents }]
+    notes: saveResult?.summary || "Generated by Coder",
+  };
+
+  // Primary path: localStorage (works offline, no backend coupling)
+  localStorage.setItem("reviewer:prefill", JSON.stringify(payload));
+
+  // Optional best-effort server prefill (doesn't block UX)
+  fetch(`${API}/roles/reviewer/prefill`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  }).catch(() => { /* ignore, localStorage already set */ });
+
+  // Navigate to Reviewer
+  window.location.hash = "#/roles?tab=reviewer";
+}
+
 
   /** Manual ticket adoption (when no handoff) */
   function adoptManualAsTicket() {
@@ -197,9 +207,6 @@ export default function CoderPanel() {
   return (
     <Card className="ga-panel ga-outline">
       <CardContent className="space-y-4 p-4">
-        <div className="flex items-center justify-between">
-        </div>
-
         {status && <div className="text-sm ga-subtle">{status}</div>}
 
         {ticket ? (
@@ -264,14 +271,17 @@ export default function CoderPanel() {
 
             {/* Actions */}
             <div className="flex flex-wrap gap-2">
-              <Button className="ga-btn" disabled={loading} onClick={generateAndSave}>
-                {loading ? "Generating…" : "Generate & Save"}
-              </Button>
-              <Button variant="outline" onClick={sendToReviewer} disabled={!generatedFiles?.length}>
-                Send to Reviewer
-              </Button>
-              {error && <div className="text-red-600 text-sm self-center">{error}</div>}
-            </div>
+  <Button className="ga-btn" disabled={loading} onClick={generateAndSave}>
+    {loading ? "Generating…" : "Generate & Save"}
+  </Button>
+
+  <Button variant="outline" onClick={sendToReviewer} disabled={!generatedFiles?.length}>
+    Send to Reviewer
+  </Button>
+
+  {error && <div className="text-red-600 text-sm self-center">{error}</div>}
+</div>
+
 
             {/* Results */}
             {saveResult && (
@@ -298,7 +308,7 @@ export default function CoderPanel() {
                   </div>
                 )}
 
-                {/* Show generated contents for quick review */}
+                {/* Show generated contents */}
                 {generatedFiles?.length ? (
                   <div className="mt-2 grid gap-3">
                     {generatedFiles.map((f, i) => (
