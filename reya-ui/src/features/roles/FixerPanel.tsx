@@ -1,8 +1,10 @@
+// src/features/roles/FixerPanel.tsx
 import React, { useEffect, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
+import { useToast } from "@/components/ui/use-toast";
 
 const API = "http://127.0.0.1:8000";
 
@@ -45,25 +47,27 @@ type ApplyAndSaveResp = {
   written: number;
   files_written: string[];
   errors: string[];
-  files: FileBlob[]; // updated files after apply
+  files: FileBlob[];
 };
 
 export default function FixerPanel() {
+  const { toast } = useToast();
+
   const [status, setStatus] = useState<string>("");
   const [filesJSON, setFilesJSON] = useState<string>(
     '[\n  {\n    "path": "reya-ui/src/components/Old.tsx",\n    "contents": "// TODO: fix issue\\nconsole.log(\\"debug\\")\\n"\n  }\n]'
   );
-  const [issuesJSON, setIssuesJSON] = useState<string>("[]"); // or findings JSON
+  const [issuesJSON, setIssuesJSON] = useState<string>("[]");
   const [strategy, setStrategy] = useState<"safe" | "aggressive">("safe");
 
   const [patches, setPatches] = useState<Patch[] | null>(null);
   const [suggestSummary, setSuggestSummary] = useState<string>("");
   const [applyResult, setApplyResult] = useState<ApplyResp | null>(null);
 
-  // save results
   const [saveSummary, setSaveSummary] = useState<string>("");
   const [filesWritten, setFilesWritten] = useState<string[]>([]);
   const [saveErrors, setSaveErrors] = useState<string[]>([]);
+  const [savedPaths, setSavedPaths] = useState<Set<string>>(new Set());
 
   const [loadingSuggest, setLoadingSuggest] = useState(false);
   const [loadingApply, setLoadingApply] = useState(false);
@@ -76,14 +80,12 @@ export default function FixerPanel() {
 
     async function loadPrefill() {
       setStatus("Checking for Reviewer → Fixer handoff…");
-      // 1) Try backend prefill
       try {
         const res = await fetch(`${API}/roles/fixer/prefill`);
         if (res.ok) {
           const data = await res.json();
           if (!cancelled && data?.prefill) {
             const p = data.prefill as {
-              ticket?: any;
               files?: FileBlob[];
               issues?: ReviewIssue[];
               findings?: Finding[];
@@ -95,11 +97,8 @@ export default function FixerPanel() {
             return;
           }
         }
-      } catch {
-        // ignore; try localStorage
-      }
+      } catch {}
 
-      // 2) Fallback: localStorage
       try {
         const raw = localStorage.getItem("reviewer:prefill");
         if (raw) {
@@ -113,9 +112,7 @@ export default function FixerPanel() {
             return;
           }
         }
-      } catch {
-        // ignore
-      }
+      } catch {}
 
       if (!cancelled) setStatus("No incoming handoff found.");
     }
@@ -126,11 +123,29 @@ export default function FixerPanel() {
     };
   }, []);
 
+  // In-page handoff from Reviewer
+  useEffect(() => {
+    const onHandoff = (e: Event) => {
+      const d = (e as CustomEvent).detail;
+      if (!d || d.target !== "fixer") return;
+
+      const files = d.payload?.files;
+      const issues = d.payload?.issues ?? d.payload?.findings;
+      if (files) setFilesJSON(JSON.stringify(files, null, 2));
+      if (issues) setIssuesJSON(JSON.stringify(issues, null, 2));
+      setStatus("Loaded Reviewer → Fixer (in-page) ✅");
+      toast({ variant: "success", title: "Received from Reviewer", description: "Handoff loaded" });
+    };
+    window.addEventListener("reya:handoff", onHandoff as EventListener);
+    return () => window.removeEventListener("reya:handoff", onHandoff as EventListener);
+  }, [toast]);
+
   function parseJSON<T>(label: string, src: string): T | null {
     try {
       return JSON.parse(src) as T;
     } catch (e: any) {
       setError(`${label} JSON parse error: ${e.message || e}`);
+      toast({ variant: "destructive", title: "JSON parse error", description: `${label}: ${e.message || e}` });
       return null;
     }
   }
@@ -149,11 +164,11 @@ export default function FixerPanel() {
     if (!files || !Array.isArray(files) || files.length === 0) {
       setLoadingSuggest(false);
       setStatus("Please provide at least one file.");
+      toast({ variant: "destructive", title: "Provide files", description: "Add at least one file to continue." });
       return;
     }
 
     const maybeIssues = parseJSON<any[]>("Issues/Findings", issuesJSON) || [];
-
     const body: SuggestReq = { files, strategy };
 
     if (maybeIssues.some((x) => typeof x?.message === "string" || x?.file)) {
@@ -174,9 +189,11 @@ export default function FixerPanel() {
       setPatches(data.patches || []);
       setSuggestSummary(data.summary || "");
       setStatus("Patches ready ✅");
+      toast({ title: "Patches generated", description: `${data.patches?.length ?? 0} patch(es)` });
     } catch (e: any) {
       setError(e.message || "Suggest failed");
       setStatus("Suggest failed");
+      toast({ variant: "destructive", title: "Suggest failed", description: String(e?.message ?? e) });
     } finally {
       setLoadingSuggest(false);
     }
@@ -185,6 +202,7 @@ export default function FixerPanel() {
   async function applyPatches() {
     if (!patches?.length) {
       setError("No patches to apply. Run Suggest first.");
+      toast({ variant: "destructive", title: "No patches", description: "Run Suggest first." });
       return;
     }
     setError(null);
@@ -209,11 +227,13 @@ export default function FixerPanel() {
       if (!res.ok) throw new Error((data as any)?.detail || "request failed");
 
       setApplyResult(data);
-      setFilesJSON(JSON.stringify(data.files, null, 2)); // reflect updates
+      setFilesJSON(JSON.stringify(data.files, null, 2));
       setStatus("Applied in memory ✅");
+      toast({ title: "Applied (in-memory)", description: data.summary });
     } catch (e: any) {
       setError(e.message || "Apply failed");
       setStatus("Apply failed");
+      toast({ variant: "destructive", title: "Apply failed", description: String(e?.message ?? e) });
     } finally {
       setLoadingApply(false);
     }
@@ -222,6 +242,7 @@ export default function FixerPanel() {
   async function applyAndSave() {
     if (!patches?.length) {
       setError("No patches to save. Run Suggest first.");
+      toast({ variant: "destructive", title: "No patches", description: "Run Suggest first." });
       return;
     }
     setError(null);
@@ -251,9 +272,20 @@ export default function FixerPanel() {
       setSaveErrors(data.errors || []);
       setFilesJSON(JSON.stringify(data.files, null, 2));
       setStatus("Applied & saved ✅");
+
+      const s = new Set(savedPaths);
+      (data.files_written || []).forEach((p) => s.add(p));
+      setSavedPaths(s);
+
+      toast({
+        variant: data.ok ? "success" : "destructive",
+        title: data.ok ? "Saved to workspace" : "Save had issues",
+        description: data.summary,
+      });
     } catch (e: any) {
       setError(e.message || "Apply & Save failed");
       setStatus("Apply & Save failed");
+      toast({ variant: "destructive", title: "Save failed", description: String(e?.message ?? e) });
     } finally {
       setLoadingSave(false);
     }
@@ -296,9 +328,7 @@ export default function FixerPanel() {
             <Input
               value={strategy}
               onChange={(e) =>
-                setStrategy(
-                  (e.target.value === "aggressive" ? "aggressive" : "safe") as "safe" | "aggressive"
-                )
+                setStrategy((e.target.value === "aggressive" ? "aggressive" : "safe") as "safe" | "aggressive")
               }
               list="fixer-strategies"
             />
@@ -316,13 +346,12 @@ export default function FixerPanel() {
               {loadingApply ? "Applying…" : "Apply (in memory)"}
             </Button>
             <Button
-          variant={patches?.length ? "secondary" : "outline"}
-          disabled={loadingSave || !patches?.length}
-          onClick={applyAndSave}
+              variant={patches?.length ? "secondary" : "outline"}
+              disabled={loadingSave || !patches?.length}
+              onClick={applyAndSave}
             >
-           {loadingSave ? "Saving…" : "Apply & Save"}
+              {loadingSave ? "Saving…" : "Apply & Save"}
             </Button>
-
           </div>
         </div>
 
@@ -334,14 +363,24 @@ export default function FixerPanel() {
           <div className="space-y-3">
             <h3 className="text-lg font-semibold">Patches</h3>
             <div className="grid gap-3">
-              {patches.map((p, i) => (
-                <div key={i} className="border rounded overflow-hidden">
-                  <div className="px-3 py-2 text-xs bg-zinc-100 text-zinc-700">{p.path}</div>
-                  <pre className="p-3 text-xs overflow-auto">
-                    <code>{p.diff}</code>
-                  </pre>
-                </div>
-              ))}
+              {patches.map((p, i) => {
+                const saved = savedPaths.has(p.path);
+                return (
+                  <div key={i} className="border rounded overflow-hidden">
+                    <div className="px-3 py-2 text-xs bg-zinc-100 text-zinc-700 flex items-center gap-2">
+                      <span>{p.path}</span>
+                      {saved && (
+                        <span className="px-2 py-0.5 text-xs rounded-full bg-emerald-500/15 border border-emerald-500/40">
+                          ✅ saved
+                        </span>
+                      )}
+                    </div>
+                    <pre className="p-3 text-xs overflow-auto">
+                      <code>{p.diff}</code>
+                    </pre>
+                  </div>
+                );
+              })}
             </div>
           </div>
         ) : null}
