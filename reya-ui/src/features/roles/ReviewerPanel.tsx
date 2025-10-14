@@ -1,8 +1,10 @@
+// src/features/roles/ReviewerPanel.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
+import { useToast } from "@/components/ui/use-toast";
 
 const API = "http://127.0.0.1:8000";
 
@@ -23,6 +25,8 @@ type ReviewIssue = {
 };
 
 export default function ReviewerPanel() {
+  const { toast } = useToast();
+
   // quick single-file mode
   const [path, setPath] = useState("reya-ui/src/components/Old.tsx");
   const [contents, setContents] = useState("// TODO: fix issue\nconsole.log('debug')");
@@ -45,14 +49,13 @@ export default function ReviewerPanel() {
   const [loadingLint, setLoadingLint] = useState(false);
   const [clearing, setClearing] = useState(false);
 
-  // Prefill from Coder
+  // Prefill from Coder (server, then localStorage)
   useEffect(() => {
     let cancelled = false;
 
     async function loadPrefill() {
       setStatus("Checking for Coder → Reviewer handoff…");
 
-      // 1) Try backend prefill (one-shot)
       try {
         const r = await fetch(`${API}/roles/reviewer/prefill`);
         if (r.ok) {
@@ -66,11 +69,8 @@ export default function ReviewerPanel() {
             return;
           }
         }
-      } catch {
-        /* ignore; try localStorage next */
-      }
+      } catch { /* ignore */ }
 
-      // 2) Fallback: localStorage
       try {
         const raw = localStorage.getItem("reviewer:prefill");
         if (raw) {
@@ -81,22 +81,36 @@ export default function ReviewerPanel() {
             setPath(files[0].path);
             setContents(files[0].contents);
             setStatus("Loaded Coder → Reviewer handoff (local) ✅");
-            // Do NOT clear; Fixer may consume later if user bounces
             return;
           }
         }
-      } catch {
-        /* ignore */
-      }
+      } catch { /* ignore */ }
 
       if (!cancelled) setStatus("No incoming handoff detected.");
     }
 
     loadPrefill();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, []);
+
+  // In-page handoff from Coder
+  useEffect(() => {
+    const onHandoff = (e: Event) => {
+      const d = (e as CustomEvent).detail;
+      if (!d || d.target !== "reviewer") return;
+
+      const files: FileBlob[] = d.payload?.files || [];
+      if (files.length) {
+        setFilesJSON(JSON.stringify(files, null, 2));
+        setPath(files[0].path);
+        setContents(files[0].contents);
+        setStatus("Loaded handoff (in-page) ✅");
+        toast({ variant: "success", title: "Received from Coder", description: `${files.length} file(s)` });
+      }
+    };
+    window.addEventListener("reya:handoff", onHandoff as EventListener);
+    return () => window.removeEventListener("reya:handoff", onHandoff as EventListener);
+  }, [toast]);
 
   function parseFiles(): FileBlob[] | null {
     if (filesJSON.trim()) {
@@ -135,6 +149,7 @@ export default function ReviewerPanel() {
     if (!files) {
       setLoadingReview(false);
       setStatus("Fix input errors and retry.");
+      toast({ variant: "destructive", title: "Invalid input", description: "Fix inputs and retry." });
       return;
     }
 
@@ -149,9 +164,11 @@ export default function ReviewerPanel() {
       setFindings(data.findings || []);
       setSummary(data.summary || "");
       setStatus("Review complete ✅");
+      toast({ title: "Review complete", description: `${data.findings?.length ?? 0} finding(s)` });
     } catch (e: any) {
       setError(e.message || "Review failed");
       setStatus("Review failed");
+      toast({ variant: "destructive", title: "Review failed", description: String(e?.message ?? e) });
     } finally {
       setLoadingReview(false);
     }
@@ -166,6 +183,7 @@ export default function ReviewerPanel() {
     if (!files) {
       setLoadingLint(false);
       setLintStatus("Fix input errors and retry.");
+      toast({ variant: "destructive", title: "Invalid input", description: "Fix inputs and retry." });
       return;
     }
 
@@ -179,29 +197,42 @@ export default function ReviewerPanel() {
       if (!res.ok) throw new Error(data?.detail || "lint failed");
       setLintIssues(data.issues || []);
       setLintStatus(data.summary || "Lint completed");
+      toast({ title: "Lint complete", description: `${data.issues?.length ?? 0} issue(s) found` });
     } catch (e: any) {
       setLintStatus(e.message || "Lint failed");
+      toast({ variant: "destructive", title: "Lint failed", description: String(e?.message ?? e) });
     } finally {
       setLoadingLint(false);
     }
+  }
+
+  function navTo(tab: "roles") {
+    window.dispatchEvent(new CustomEvent("reya:navigate", { detail: { tab } }));
   }
 
   function sendToFixer() {
     const files = parseFiles();
     if (!files) {
       setError("Nothing to send: provide files first.");
+      toast({ variant: "destructive", title: "Nothing to send", description: "Add files first." });
       return;
     }
-    // Prefer issues → Fixer
+
     const payload = {
       files,
       issues: lintIssues.length ? lintIssues : undefined,
       findings: !lintIssues.length && findings.length ? findings : undefined,
       notes: (lintIssues.length ? lintStatus : summary) || "Findings from Reviewer",
     };
+
     localStorage.setItem("reviewer:prefill", JSON.stringify(payload));
+
+    window.dispatchEvent(new CustomEvent("reya:handoff", { detail: { target: "fixer", payload } }));
     setStatus("Sent to Fixer ✅");
-    window.location.hash = "#/roles?tab=fixer";
+    toast({ variant: "success", title: "Handoff sent", description: "Reviewer → Fixer" });
+
+    window.dispatchEvent(new CustomEvent("reya:roles-focus", { detail: { panel: "fixer" } }));
+    navTo("roles");
   }
 
   // --- Dev helper: clear server prefill buffer ---
@@ -211,11 +242,13 @@ export default function ReviewerPanel() {
       await fetch(`${API}/roles/reviewer/prefill`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}), // empty payload clears the buffer server-side
+        body: JSON.stringify({}),
       });
       setStatus("Server prefill cleared.");
+      toast({ title: "Cleared", description: "Server prefill buffer cleared." });
     } catch {
       setStatus("Failed to clear server prefill (network?).");
+      toast({ variant: "destructive", title: "Clear failed", description: "Network or server error." });
     } finally {
       setClearing(false);
     }
@@ -233,15 +266,14 @@ export default function ReviewerPanel() {
         })()) ||
       !!path.trim();
     return haveFiles && (lintIssues.length > 0 || findings.length > 0 || !!summary);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filesJSON, path, lintIssues.length, findings.length, summary]);
 
   return (
     <Card className="ga-panel ga-outline">
       <CardContent className="space-y-3 p-4">
         <div className="flex items-center justify-between">
-          <h2 className="font-semibold"></h2>
-        <div className="flex gap-2">
+          <h2 className="font-semibold">Reviewer</h2>
+          <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={clearServerPrefill} disabled={clearing} title="Dev: wipe server handoff buffer">
               {clearing ? "Clearing…" : "Clear server prefill"}
             </Button>
@@ -267,12 +299,12 @@ export default function ReviewerPanel() {
         {/* Single-file quick editor */}
         <Input value={path} onChange={(e) => setPath(e.target.value)} placeholder="File path" />
         <Textarea
-            className="min-h-40 font-mono text-sm"
-            spellCheck={false}
-            value={contents}
-            onChange={(e) => setContents(e.target.value)}
-            placeholder="// paste code here"
-          />
+          className="min-h-40 font-mono text-sm"
+          spellCheck={false}
+          value={contents}
+          onChange={(e) => setContents(e.target.value)}
+          placeholder="// paste code here"
+        />
 
         <div className="flex gap-2">
           <Button className="ga-btn" disabled={loadingReview} onClick={runReview}>
@@ -288,6 +320,7 @@ export default function ReviewerPanel() {
 
         {/* Static review summary */}
         {summary && <div className="text-sm bg-zinc-100 text-zinc-800 rounded p-2">{summary}</div>}
+
         {!!findings.length && (
           <div className="space-y-2">
             <h3 className="text-lg font-semibold">Findings</h3>

@@ -1,21 +1,20 @@
 // src/main.tsx
 import React from "react";
 import ReactDOM from "react-dom/client";
-import REYAApp from "./pages/reya-app"; // or your router root; if you render reya-app.tsx directly, use that
+import REYAApp from "./pages/reya-app";
 import { ModesProvider } from "@/state/modes";
-import { ToastProvider, Toaster } from "@/components/ui/use-toast";
-import "@/index.css" // <-- provider + toaster
+import { ToastProvider } from "@/components/ui/use-toast";
+import "@/index.css";
 import "@/styles/fold.css";
-
 
 document.documentElement.setAttribute("data-theme", "glass-aurora-purple");
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <ModesProvider>
+      {/* ToastProvider already portal-renders <Toaster /> */}
       <ToastProvider>
-        <REYAApp />         {/* or <REYAApp /> if that's your top page */}
-        <Toaster />     {/* renders the toast container */}
+        <REYAApp />
       </ToastProvider>
     </ModesProvider>
   </React.StrictMode>
