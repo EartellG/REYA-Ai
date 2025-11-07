@@ -20,6 +20,7 @@ type ReviewIssue = {
   message: string;
   suggestion?: string;
   rule?: string;
+  source?: "eslint" | "ruff" | "inline";
 };
 
 type SuggestReq = {
@@ -50,6 +51,10 @@ type ApplyAndSaveResp = {
   files: FileBlob[];
 };
 
+/** Workspace diff API types */
+type FileDiff = { path: string; diff: string };
+type DiffReply = { diffs: FileDiff[] };
+
 export default function FixerPanel() {
   const { toast } = useToast();
 
@@ -72,7 +77,11 @@ export default function FixerPanel() {
   const [loadingSuggest, setLoadingSuggest] = useState(false);
   const [loadingApply, setLoadingApply] = useState(false);
   const [loadingSave, setLoadingSave] = useState(false);
+  const [loadingDiff, setLoadingDiff] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  /** Diff preview state */
+  const [diffs, setDiffs] = useState<FileDiff[] | null>(null);
 
   // Prefill: backend first, then localStorage fallback (from Reviewer)
   useEffect(() => {
@@ -157,6 +166,7 @@ export default function FixerPanel() {
     setSaveSummary("");
     setFilesWritten([]);
     setSaveErrors([]);
+    setDiffs(null);
     setLoadingSuggest(true);
     setStatus("Suggesting patches…");
 
@@ -208,6 +218,7 @@ export default function FixerPanel() {
     setError(null);
     setLoadingApply(true);
     setStatus("Applying patches…");
+    setDiffs(null); // clear old diff
 
     const files = parseJSON<FileBlob[]>("Files", filesJSON);
     if (!files) {
@@ -239,6 +250,38 @@ export default function FixerPanel() {
     }
   }
 
+  async function previewDiff() {
+    setLoadingDiff(true);
+    setDiffs(null);
+    setStatus("Generating diff preview…");
+
+    const files = parseJSON<FileBlob[]>("Files", filesJSON);
+    if (!files || !Array.isArray(files) || files.length === 0) {
+      setLoadingDiff(false);
+      setStatus("Provide files to diff.");
+      toast({ variant: "destructive", title: "No files", description: "Provide files to preview diff." });
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API}/workspace/diff`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ files }),
+      });
+      const data: DiffReply = await res.json();
+      if (!res.ok) throw new Error((data as any)?.detail || "diff failed");
+      setDiffs(data.diffs || []);
+      setStatus("Diff preview ready ✅");
+      toast({ title: "Diff ready", description: `${data.diffs?.length ?? 0} file(s)` });
+    } catch (e: any) {
+      setStatus("Diff failed");
+      toast({ variant: "destructive", title: "Diff failed", description: String(e?.message ?? e) });
+    } finally {
+      setLoadingDiff(false);
+    }
+  }
+
   async function applyAndSave() {
     if (!patches?.length) {
       setError("No patches to save. Run Suggest first.");
@@ -251,6 +294,7 @@ export default function FixerPanel() {
     setSaveSummary("");
     setFilesWritten([]);
     setSaveErrors([]);
+    setDiffs(null); // clear preview after save attempt
 
     const files = parseJSON<FileBlob[]>("Files", filesJSON);
     if (!files) {
@@ -322,8 +366,8 @@ export default function FixerPanel() {
         </label>
 
         {/* Strategy + Actions */}
-        <div className="grid gap-3 sm:grid-cols-3 items-end">
-          <label className="grid gap-1">
+        <div className="grid gap-3 sm:grid-cols-4 items-end">
+          <label className="grid gap-1 sm:col-span-1">
             <span className="text-sm font-medium">Strategy</span>
             <Input
               value={strategy}
@@ -338,12 +382,15 @@ export default function FixerPanel() {
             </datalist>
           </label>
 
-          <div className="flex gap-2 sm:col-span-2">
+          <div className="flex gap-2 sm:col-span-3 flex-wrap">
             <Button className="ga-btn" disabled={loadingSuggest} onClick={suggestPatches}>
               {loadingSuggest ? "Suggesting…" : "Suggest patches"}
             </Button>
             <Button variant="outline" disabled={loadingApply || !patches?.length} onClick={applyPatches}>
               {loadingApply ? "Applying…" : "Apply (in memory)"}
+            </Button>
+            <Button variant="outline" disabled={loadingDiff} onClick={previewDiff}>
+              {loadingDiff ? "Diffing…" : "Preview diff"}
             </Button>
             <Button
               variant={patches?.length ? "secondary" : "outline"}
@@ -381,6 +428,22 @@ export default function FixerPanel() {
                   </div>
                 );
               })}
+            </div>
+          </div>
+        ) : null}
+
+        {diffs?.length ? (
+          <div className="space-y-3">
+            <h3 className="text-lg font-semibold">Diff Preview (Workspace vs Proposed)</h3>
+            <div className="grid gap-3">
+              {diffs.map((d, i) => (
+                <div key={i} className="border rounded overflow-hidden">
+                  <div className="px-3 py-2 text-xs bg-zinc-100 text-zinc-700">{d.path}</div>
+                  <pre className="p-3 text-xs overflow-auto">
+                    <code>{d.diff || "No changes."}</code>
+                  </pre>
+                </div>
+              ))}
             </div>
           </div>
         ) : null}
