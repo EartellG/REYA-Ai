@@ -1,11 +1,22 @@
 // src/components/ui/sidebar.tsx
+import React from "react";
 import { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
-export type TabKey = "chat" | "projects" | "tutor" | "kb" | "roles" | "settings";
+
+// ✅ Add "system" to TabKey type
+export type TabKey = 
+  | "chat"
+  | "projects"
+  | "tutor"
+  | "kb"
+  | "roles"
+  | "settings"
+  | "system";
 
 type Item = { key: TabKey; icon: ReactNode; label: string };
 
+// ✅ Add System tab to navigation list
 const items: Item[] = [
   { key: "chat",     icon: "💬", label: "Chat" },
   { key: "projects", icon: "📁", label: "Projects" },
@@ -13,6 +24,7 @@ const items: Item[] = [
   { key: "kb",       icon: "📚", label: "Knowledge Base" },
   { key: "roles",    icon: "🧩", label: "Roles" },
   { key: "settings", icon: "⚙️", label: "Settings" },
+  { key: "system",   icon: "🧠", label: "System" }, // 🧩 NEW TAB
 ];
 
 export default function Sidebar({
@@ -28,6 +40,7 @@ export default function Sidebar({
 }) {
   return (
     <>
+      {/* mobile backdrop */}
       <div
         className={cn(
           "fixed inset-0 z-40 lg:hidden transition-opacity bg-black/50",
@@ -36,6 +49,7 @@ export default function Sidebar({
         onClick={onClose}
       />
 
+      {/* sidebar panel */}
       <aside
         className={cn(
           "fixed z-50 top-0 left-0 h-full w-68 p-3 transform transition-transform",

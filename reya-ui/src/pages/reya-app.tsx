@@ -16,8 +16,9 @@ import SettingsTab from "@/tabs/SettingsTab";
 import VoiceController from "@/components/ui/VoiceController";
 import { useChatStore } from "@/state/chatStore";
 import ToasterMount from "@/components/ui/ToasterMount";
+import SystemStatusPanel from "@/features/system/SystemStatusPanel";
 
-const TAB_KEYS = ["chat","projects","tutor","kb","logic","avatar","settings","roles"] as const;
+const TAB_KEYS = ["chat","projects","tutor","kb","logic","avatar","settings","roles","system"] as const;
 const isTabKey = (v: unknown): v is TabKey => (TAB_KEYS as readonly string[]).includes(v as string);
 
 export default function REYAApp() {
@@ -158,6 +159,7 @@ export default function REYAApp() {
                 {activeTab === "kb" && <KnowledgeBaseTab />}
                 {activeTab === "roles" && <RolesPage />}
                 {activeTab === "settings" && <SettingsTab />}
+                {activeTab === "system" && <SystemStatusPanel />}
               </div>
             </ErrorBoundary>
           </main>

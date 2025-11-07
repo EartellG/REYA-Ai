@@ -5,6 +5,7 @@ from typing import List, Optional, Dict
 from pathlib import Path
 from datetime import datetime
 import os  # <-- import before using os.getenv
+from difflib import unified_diff 
 
 router = APIRouter(prefix="/workspace", tags=["workspace"])
 
@@ -114,3 +115,46 @@ def save_files(req: SaveRequest):
         results=results,
         stats={"saved": saved, "skipped": skipped, "errors": errors, "total": len(req.files)},
     )
+
+class DiffRequest(BaseModel):
+    files: List[FileBlob]
+
+class FileDiff(BaseModel):
+    path: str
+    diff: str  # unified diff text
+
+class DiffReply(BaseModel):
+    diffs: List[FileDiff]
+
+@router.post("/diff", response_model=DiffReply)
+def diff_files(req: DiffRequest):
+    """
+    Compares provided file contents against current on-disk versions
+    under WORKSPACE_ROOT. Returns unified diffs for preview.
+    """
+    if not req.files:
+        raise HTTPException(status_code=422, detail="No files provided")
+
+    diffs: List[FileDiff] = []
+
+    for f in req.files:
+        target = _guarded_path(f.path)
+        current = ""
+        try:
+            if target.exists():
+                current = target.read_text(encoding="utf-8")
+        except Exception as ex:
+            raise HTTPException(status_code=500, detail=f"Failed to read {f.path}: {ex}")
+
+        diff_text = "".join(
+            unified_diff(
+                current.splitlines(keepends=True),
+                f.contents.splitlines(keepends=True),
+                fromfile=f"a/{f.path}",
+                tofile=f"b/{f.path}",
+                lineterm=""
+            )
+        )
+        diffs.append(FileDiff(path=f.path, diff=diff_text))
+
+    return DiffReply(diffs=diffs)

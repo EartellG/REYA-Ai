@@ -1,79 +1,23 @@
 # backend/routes/roles_fixer.py
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
-from typing import List, Optional, Literal, Dict
+from pydantic import BaseModel
+from typing import List, Optional, Literal, Dict, Tuple
 from pathlib import Path
-import re
 import difflib
-import datetime
+import re
 import os
 
+router = APIRouter(prefix="/roles/fixer", tags=["roles-fixer"])
 
-
-router = APIRouter(prefix="/roles/fixer", tags=["roles:fixer"])
-
-# ---------- one-shot prefill buffer (Reviewer -> Fixer handoff) ----------
+# -------- One-shot prefill buffer (Reviewer -> Fixer handoff) --------
 _PREFILL: Optional[dict] = None
 
-# ---------- Models ----------
-class FileBlob(BaseModel):
-    path: str = Field(..., min_length=1)
-    contents: str = Field(..., min_length=0)
-
-# Legacy finding (Reviewer v1)
-class Finding(BaseModel):
-    path: str
-    notes: List[str]
-
-# Rich issue (Reviewer v2)
-class ReviewIssue(BaseModel):
-    id: Optional[str] = None
-    file: Optional[str] = None
-    line: Optional[int] = None
-    col: Optional[int] = None
-    severity: Literal["error", "warning", "info"] = "info"
-    message: str
-    suggestion: Optional[str] = None
-    rule: Optional[str] = None
-
-class FixRequest(BaseModel):
-    files: List[FileBlob]
-    findings: Optional[List[Finding]] = None   # legacy
-    issues: Optional[List[ReviewIssue]] = None # new
-    strategy: Optional[Literal["safe", "aggressive"]] = "safe"
-    only_paths: Optional[List[str]] = None
-
-class Patch(BaseModel):
-    path: str
-    diff: str  # unified diff
-
-class FixReply(BaseModel):
-    ok: bool = True
-    summary: str
-    patches: List[Patch]
-    stats: Dict[str, int] = {}
-
-class ApplyRequest(BaseModel):
-    files: List[FileBlob]
-    patches: List[Patch]
-
-class ApplyReply(BaseModel):
-    ok: bool
-    summary: str
-    files: List[FileBlob]
-
-class ApplyAndSaveReply(BaseModel):
-    ok: bool
-    summary: str
-    written: int
-    files_written: list[str] = []
-    errors: list[str] = []
-    files: list[FileBlob] = []  # echo of updated files (for UI preview if needed)
-
-# ---------- Prefill endpoints (Reviewer -> Fixer handoff) ----------
 @router.get("/prefill")
 def get_prefill():
-    """Retrieve one-shot handoff payload (clears after read)."""
+    """
+    One-shot prefill fetch for FixerPanel. Returns {"prefill": None} if empty.
+    After a successful read, the buffer is cleared.
+    """
     global _PREFILL
     if not _PREFILL:
         return {"prefill": None}
@@ -83,183 +27,246 @@ def get_prefill():
 
 @router.post("/prefill")
 def set_prefill(payload: dict):
-    """Store a one-shot handoff blob from Reviewer (files, findings, ticket)."""
+    """
+    Allow Reviewer to stage files/issues for Fixer.
+    """
     global _PREFILL
-    _PREFILL = payload
-    return {"ok": True, "stored": True}
-
-# ---------- Helpers ----------
-_CONSOLE_RE = re.compile(r"\bconsole\.log\s*\(")
-_ALERT_RE   = re.compile(r"\balert\s*\(")
-_TODO_RE    = re.compile(r"\b(TODO|FIXME)\b", re.IGNORECASE)
-_ANY_RE     = re.compile(r"(?<!\w)any(?!\w)")
-_DUP_SPACES = re.compile(r"[ \t]+$")  # trailing spaces
+    _PREFILL = payload or {}
+    return {"ok": True}
 
 
-def _write_files(files: list[FileBlob]) -> tuple[int, list[str], list[str]]:
+# ---------------- Models ----------------
+class FileBlob(BaseModel):
+    path: str
+    contents: str
+
+class ReviewIssue(BaseModel):
+    id: Optional[str] = None
+    file: Optional[str] = None
+    line: Optional[int] = None
+    col: Optional[int] = None
+    severity: Literal["error", "warning", "info"] = "warning"
+    message: str
+    suggestion: Optional[str] = None
+    rule: Optional[str] = None
+    source: Optional[str] = None  # "eslint" | "ruff" | "inline"
+
+class Finding(BaseModel):  # legacy shape from static review
+    path: str
+    notes: List[str]
+
+class SuggestReq(BaseModel):
+    files: List[FileBlob]
+    issues: Optional[List[ReviewIssue]] = None
+    findings: Optional[List[Finding]] = None
+    strategy: Optional[Literal["safe", "aggressive"]] = "safe"
+    only_paths: Optional[List[str]] = None
+
+class Patch(BaseModel):
+    path: str
+    diff: str  # unified diff (display only)
+
+class SuggestResp(BaseModel):
+    ok: bool
+    summary: str
+    patches: List[Patch]
+    stats: Optional[Dict[str, int]] = None
+
+class ApplyReq(BaseModel):
+    files: List[FileBlob]
+    patches: List[Patch]
+
+class ApplyResp(BaseModel):
+    ok: bool
+    summary: str
+    files: List[FileBlob]
+
+class ApplyAndSaveReq(BaseModel):
+    files: List[FileBlob]
+    patches: List[Patch]
+
+class ApplyAndSaveResp(BaseModel):
+    ok: bool
+    summary: str
+    written: int
+    files_written: List[str]
+    errors: List[str]
+    files: List[FileBlob]
+
+
+# ---------------- Utility transforms ----------------
+def _transform_js_ts(code: str, strategy: str = "safe") -> str:
     """
-    Writes FileBlob list to disk.
-    Returns: (written_count, written_paths, errors)
-    """
-    written = 0
-    paths: list[str] = []
-    errors: list[str] = []
-
-    for f in files:
-        try:
-            p = Path(f.path)
-            # prevent directory traversal into system roots if you want (optional guard)
-            # if not str(p.resolve()).startswith(str(Path(".").resolve())):
-            #     errors.append(f"Blocked write outside workspace: {f.path}")
-            #     continue
-
-            p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(f.contents, encoding="utf-8")
-            written += 1
-            paths.append(f.path)
-        except Exception as e:
-            errors.append(f"{f.path}: {e!r}")
-    return written, paths, errors
-
-def _apply_simple_auto_fixes(src: str, path: str, strategy: str) -> str:
-    """
-    Conservative auto-fixes:
-      - remove or comment out console.log / alert lines
-      - trim trailing spaces
-      - annotate or rewrite TODO/FIXME
-      - replace 'any' with 'unknown' in TS when aggressive
+    Simple fixer rules for JS/TS:
+    - remove console.log lines
+    - strip TODO/FIXME comments
+    - (aggressive) replace any with unknown in TypeScript
     """
     out_lines: List[str] = []
-    is_ts_like = path.endswith((".ts", ".tsx"))
-
-    for line in src.splitlines(keepends=False):
-        # Trim trailing spaces
-        line = _DUP_SPACES.sub("", line)
-
-        # console.log
-        if _CONSOLE_RE.search(line):
-            if strategy == "aggressive":
-                continue
-            else:
-                line = f"// removed by fixer: {line}"
-
-        # alert()
-        if _ALERT_RE.search(line):
-            if strategy == "aggressive":
-                continue
-            else:
-                line = f"// replaced alert() by fixer; use toast/snackbar\n// {line}"
-
-        # TODO/FIXME
-        if _TODO_RE.search(line):
-            if strategy == "aggressive":
-                line = f"// TODO handled by fixer: " + line
-            else:
-                line = line + "  // NOTE: tracked by Fixer"
-
-        # TypeScript 'any'
-        if is_ts_like and _ANY_RE.search(line):
-            if strategy == "aggressive":
-                line = _ANY_RE.sub("unknown", line)
-
+    for line in code.splitlines():
+        # remove console.log (common lint rule)
+        if re.search(r"\bconsole\.log\s*\(", line):
+            continue
+        # strip single-line TODO/FIXME comments
+        if re.search(r"//\s*(TODO|FIXME)\b", line):
+            continue
         out_lines.append(line)
 
-    return "\n".join(out_lines) + ("\n" if src.endswith("\n") else "")
+    fixed = "\n".join(out_lines)
 
-def _unified_diff(path: str, before: str, after: str) -> str:
-    ts = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    if strategy == "aggressive":
+        # replace standalone : any with : unknown (basic TS hygiene)
+        fixed = re.sub(r":\s*any\b", ": unknown", fixed)
+
+    return fixed
+
+def _transform_python(code: str, strategy: str = "safe") -> str:
+    """
+    Simple fixer rules for Python:
+    - remove TODO / FIXME comments
+    - (aggressive) strip unused import lines heuristically (very naive)
+    """
+    out_lines: List[str] = []
+    for line in code.splitlines():
+        if re.search(r"#\s*(TODO|FIXME)\b", line):
+            continue
+        out_lines.append(line)
+    fixed = "\n".join(out_lines)
+
+    if strategy == "aggressive":
+        # naive removal of obvious unused imports like: "import pdb" or "from pdb import set_trace"
+        fixed = re.sub(r"^\s*(from\s+\w+\s+import\s+\w+|import\s+\w+)\s*$", "", fixed, flags=re.MULTILINE)
+
+    return fixed
+
+def _suggest_for_file(path: str, contents: str, strategy: str) -> Tuple[str, Optional[str]]:
+    """
+    Returns (new_contents, unified_diff or None if no change)
+    """
+    ext = Path(path).suffix.lower()
+    if ext in {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"}:
+        new_contents = _transform_js_ts(contents, strategy)
+    elif ext == ".py":
+        new_contents = _transform_python(contents, strategy)
+    else:
+        # no transform
+        new_contents = contents
+
+    if new_contents == contents:
+        return contents, None
+
     diff = difflib.unified_diff(
-        before.splitlines(keepends=True),
-        after.splitlines(keepends=True),
+        contents.splitlines(keepends=True),
+        new_contents.splitlines(keepends=True),
         fromfile=f"a/{path}",
         tofile=f"b/{path}",
-        fromfiledate=ts,
-        tofiledate=ts,
-        n=3,
+        lineterm=""
     )
-    return "".join(diff)
+    return new_contents, "".join(diff)
 
-# ---------- Core: suggest patches ----------
-@router.post("/suggest_patches", response_model=FixReply)
-async def suggest_patches(req: FixRequest):
+
+# ---------------- Suggest patches ----------------
+@router.post("/suggest_patches", response_model=SuggestResp)
+def suggest_patches(req: SuggestReq):
     if not req.files:
         raise HTTPException(status_code=422, detail="No files provided")
 
-    file_map: Dict[str, str] = {f.path: f.contents for f in req.files}
-    target_paths = set(req.only_paths or file_map.keys())
-
-    if req.issues:
-        target_paths &= {i.file for i in req.issues if i.file}
-    elif req.findings:
-        target_paths &= {f.path for f in req.findings}
-
+    only = set(req.only_paths or [])
     patches: List[Patch] = []
-    edited = 0
-    unchanged = 0
+    changed = 0
+    inspected = 0
 
-    for path in sorted(target_paths):
-        before = file_map.get(path)
-        if before is None:
+    # If issues/findings provided, prioritize those paths
+    candidate_paths = set(f.path for f in req.files)
+    if req.issues:
+        for it in req.issues:
+            if it.file:
+                candidate_paths.add(it.file)
+    if req.findings:
+        for f in req.findings:
+            if f.path:
+                candidate_paths.add(f.path)
+
+    for fb in req.files:
+        if only and fb.path not in only:
             continue
+        if fb.path not in candidate_paths:
+            continue
+        inspected += 1
+        new_contents, udiff = _suggest_for_file(fb.path, fb.contents, req.strategy or "safe")
+        if udiff:
+            patches.append(Patch(path=fb.path, diff=udiff))
+            changed += 1
 
-        after = _apply_simple_auto_fixes(before, path, req.strategy or "safe")
+    summary = f"Analyzed {inspected} file(s). Produced {len(patches)} patch(es)."
+    return SuggestResp(ok=True, summary=summary, patches=patches, stats={"inspected": inspected, "changed": changed})
 
-        if after != before:
-            diff = _unified_diff(path, before, after)
-            if diff.strip():
-                patches.append(Patch(path=path, diff=diff))
-                edited += 1
-        else:
-            unchanged += 1
 
-    summary = f"Analyzed {len(target_paths)} file(s): {edited} patched, {unchanged} unchanged."
-    stats = {"files_seen": len(target_paths), "patched": edited, "unchanged": unchanged}
-    return FixReply(ok=True, summary=summary, patches=patches, stats=stats)
-
-# ---------- Apply patches ----------
-@router.post("/apply", response_model=ApplyReply)
-async def apply_patches(req: ApplyRequest):
+# ---------------- Apply patches (in-memory) ----------------
+@router.post("/apply", response_model=ApplyResp)
+def apply(req: ApplyReq):
     """
-    Applies patches in-memory (re-runs our safe fix rules per file).
-    Returns updated file contents.
+    Applies fixes by re-running the same deterministic transforms used in suggest_patches.
+    We do NOT parse unified diff; the diff is for display only.
     """
     if not req.files:
         raise HTTPException(status_code=422, detail="No files provided")
-    if not req.patches:
-        return ApplyReply(ok=True, summary="No patches provided.", files=req.files)
 
-    contents_by_path = {f.path: f.contents for f in req.files}
+    by_path = {f.path: f for f in req.files}
+    out_files: List[FileBlob] = []
     touched = 0
 
-    for p in req.patches:
-        if p.path in contents_by_path:
-            before = contents_by_path[p.path]
-            after = _apply_simple_auto_fixes(before, p.path, "safe")
-            if after != before:
-                contents_by_path[p.path] = after
+    for f in req.files:
+        new_contents, udiff = _suggest_for_file(f.path, f.contents, "safe")
+        if udiff:
+            out_files.append(FileBlob(path=f.path, contents=new_contents))
+            touched += 1
+        else:
+            out_files.append(f)
+
+    return ApplyResp(ok=True, summary=f"Applied fixes to {touched} file(s) in memory.", files=out_files)
+
+
+# ---------------- Apply & Save to workspace ----------------
+WORKSPACE_ROOT = Path(os.environ.get("REYA_WORKSPACE_ROOT", ".")).resolve()
+
+@router.post("/apply_and_save", response_model=ApplyAndSaveResp)
+def apply_and_save(req: ApplyAndSaveReq):
+    if not req.files:
+        raise HTTPException(status_code=422, detail="No files provided")
+
+    by_path = {f.path: f for f in req.files}
+    out_files: List[FileBlob] = []
+    files_written: List[str] = []
+    errors: List[str] = []
+    touched = 0
+
+    for f in req.files:
+        new_contents, udiff = _suggest_for_file(f.path, f.contents, "safe")
+        out = FileBlob(path=f.path, contents=new_contents if udiff else f.contents)
+        out_files.append(out)
+
+        # write to workspace
+        try:
+            abs_path = (WORKSPACE_ROOT / f.path).resolve()
+            if WORKSPACE_ROOT not in abs_path.parents and WORKSPACE_ROOT != abs_path:
+                errors.append(f"Refused to write outside workspace: {abs_path}")
+                continue
+            abs_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(abs_path, "w", encoding="utf-8") as fp:
+                fp.write(out.contents)
+            files_written.append(str(abs_path))
+            if udiff:
                 touched += 1
+        except Exception as ex:
+            errors.append(f"{f.path}: {ex}")
 
-    updated_files = [FileBlob(path=k, contents=v) for k, v in contents_by_path.items()]
-    return ApplyReply(ok=True, summary=f"Applied {touched} patch(es) in memory.", files=updated_files)
-
-@router.post("/apply_and_save", response_model=ApplyAndSaveReply)
-async def apply_and_save(req: ApplyRequest):
-    """
-    Applies patches in-memory (same as /apply) then writes results to disk.
-    """
-    # reuse /apply behavior to get updated in-memory files
-    applied = await apply_patches(req)
-    if not applied.ok:
-        return ApplyAndSaveReply(ok=False, summary=applied.summary, written=0, files=applied.files)
-
-    written, paths, errs = _write_files(applied.files)
-    ok = written > 0 and len(errs) == 0
-    summary = f"Wrote {written} file(s)." + (f" {len(errs)} error(s)." if errs else "")
-    return ApplyAndSaveReply(
-        ok=ok,
+    summary = f"Applied fixes to {touched} file(s). Wrote {len(files_written)} file(s) to workspace."
+    return ApplyAndSaveResp(
+        ok=len(errors) == 0,
         summary=summary,
-        written=written,
-        files_written=paths,
-        errors=errs,
-        files=applied.files,
+        written=len(files_written),
+        files_written=files_written,
+        errors=errors,
+        files=out_files
     )
