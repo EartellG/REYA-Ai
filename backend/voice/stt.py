@@ -1,109 +1,147 @@
+# backend/voice/stt.py
+
+import os
+import random
+import asyncio
 import speech_recognition as sr
 from fuzzywuzzy import fuzz
-import pyttsx3
-import asyncio
-import os
+from pathlib import Path
 
-from .edge_tts import speak_with_voice_style, _cfg
-from dotenv import load_dotenv
-from.edge_tts import _cfg
+from backend.stt.whisper_cpp import transcribe_whisper_cpp
+from backend.voice.edge_tts import speak_with_voice_style
+from backend.voice.speech_manager import synthesize_tts
 
-# Force-load .env from project root and backend folder
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", ".env"), override=True)
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", "..", ".env"), override=True)
-
-
-
+# --- Microphone setup ---
 recognizer = sr.Recognizer()
 mic = sr.Microphone()
 
-WAKE_WORDS = ["reya", "rhea", "raya", "rea"]
+# --- Wake words ---
+WAKE_WORDS = ["reya", "rea", "raya", "rhea", "hey reya", "ok reya"]
 MIN_WAKE_CONFIDENCE = 80
-QUIT_WORDS = ["quit", "exit", "stop", "goodbye"]
 
-# Local pyttsx3 fallback
-tts = pyttsx3.init()
-tts.setProperty('rate', 175)
+# Personality-based randomized REYA wake replies
+WAKE_REPLIES = [
+    "I'm listening.",
+    "Yes? What’s on your mind?",
+    "Go ahead, I’m here.",
+    "Mm? You called for me?",
+    "Right here. What do you need?",
+    "Listening~",
+    "Hm? Oh—yes, I hear you.",
+    "At your service.",
+    "Have I been Summoned? very well then, speak.",
+]
 
+# -------------------------------------------------------
+# Wake-word fuzzy match
+# -------------------------------------------------------
 def match_wake_word(text: str) -> bool:
     for wake in WAKE_WORDS:
-        confidence = fuzz.ratio(wake, text)
-        if confidence >= MIN_WAKE_CONFIDENCE:
-            print(f"[Wake Check] Heard '{text}' → Matched '{wake}' ({confidence}%)")
+        score = fuzz.ratio(wake, text)
+        if score >= MIN_WAKE_CONFIDENCE:
+            print(f"[Wake Match] '{text}' → {wake} ({score}%)")
             return True
-    print(f"[Wake Check] Heard '{text}' → No match")
     return False
 
-def _speak_fallback(text: str):
-    """Fallback to local pyttsx3 if Azure/Edge fails."""
-    try:
-        print(f"[Fallback TTS] Speaking via pyttsx3: {text}")
-        tts.say(text)
-        tts.runAndWait()
-    except Exception as e:
-        print(f"[Fallback TTS] Error: {e}")
 
+# -------------------------------------------------------
+# RANDOMIZED personality wake reply
+# -------------------------------------------------------
+async def speak_wake_reply(reya):
+    reply = random.choice(WAKE_REPLIES)
+    try:
+        await asyncio.to_thread(speak_with_voice_style, reply, reya)
+    except Exception:
+        # fallback to silent fail — we never want wake to break STT
+        print("[Wake Reply] TTS unavailable, skipping.")
+
+
+# -------------------------------------------------------
+# ALWAYS-LISTENING WAKE WORD DETECTOR
+# - Quiet background listener
+# - When wake word spoken → returns control to REYA main loop
+# -------------------------------------------------------
 def wait_for_wake_word(reya, test_mode=False):
-    print(f"[DEBUG] Azure key: {bool(_cfg()['AZURE_KEY'])}, Region: {_cfg()['AZURE_REGION']}, Edge Enabled: {_cfg()['EDGE_ENABLED']}")
-    print("🎧 Listening for wake word... (say 'Reya')")
-    cfg = _cfg()
-    azure_ok = bool(cfg["AZURE_KEY"] and cfg["AZURE_REGION"])
-    edge_ok = cfg["EDGE_ENABLED"]
+    print("🎧 Always-listening enabled… waiting for wake word…")
 
     with mic as source:
         recognizer.adjust_for_ambient_noise(source)
+
         while True:
             try:
                 audio = recognizer.listen(source)
                 text = recognizer.recognize_google(audio).lower()
+
                 if test_mode:
-                    print(f"[Test Mode] Heard: {text}")
+                    print(f"[DEBUG] Heard: {text}")
 
                 if match_wake_word(text):
-                    print("✨ Wake word detected! Listening for command...")
+                    asyncio.create_task(speak_wake_reply(reya))
+                    return True
 
-                    # Use Azure or Edge if configured
-                    try:
-                        if azure_ok or edge_ok:
-                            speak_with_voice_style("How may I assist you?", reya)
-                        else:
-                            _speak_fallback("How may I assist you?")
-                    except Exception as e:
-                        print(f"[WARN] Wake-response TTS failed: {e}")
-                        _speak_fallback("How may I assist you?")
-
-                    return  # Continue to command listening
             except sr.UnknownValueError:
                 continue
-            except sr.RequestError as e:
-                print(f"[ERROR] Speech Recognition error: {e}")
+            except Exception as e:
+                print(f"[Wake Error] {e}")
                 continue
 
-def listen_for_command(reya, timeout=10, phrase_time_limit=15, retries=1):
-    print("🎤 Listening for command...")
+
+# -------------------------------------------------------
+# LOCAL STT PIPELINE:
+# Whisper.cpp → Google SR fallback → graceful fail
+# -------------------------------------------------------
+def transcribe_audio(audio_path: str) -> str:
+    """
+    Attempts Whisper.cpp first.
+    Falls back to speech_recognition → Google Web STT.
+    And falls back to a safe string on total failure.
+    """
+    # ---------------------------
+    # Whisper.cpp FIRST
+    # ---------------------------
+    try:
+        print("[STT] Trying Whisper.cpp…")
+        text = transcribe_whisper_cpp(audio_path)
+        if text.strip():
+            print("[STT] Whisper.cpp success.")
+            return text.strip()
+    except Exception as e:
+        print(f"[STT Whisper.cpp failed] {e}")
+
+    # ---------------------------
+    # Google fallback (SpeechRecognition)
+    # ---------------------------
+    try:
+        print("[STT] Trying Google SpeechRecognition fallback…")
+        with sr.AudioFile(audio_path) as source:
+            audio = recognizer.record(source)
+        text = recognizer.recognize_google(audio)
+        print("[STT] Google SR success.")
+        return text.lower().strip()
+    except Exception as e:
+        print(f"[STT Google fallback failed] {e}")
+
+    # Total failure → safe, graceful
+    print("[STT] Total failure. Returning fallback text.")
+    return "I didn't catch that."
+
+
+# -------------------------------------------------------
+# DIRECT MICROPHONE COMMAND LISTENER (after wake word)
+# -------------------------------------------------------
+def listen_for_command(reya, timeout=10, phrase_time_limit=15):
+    print("🎤 Listening for command…")
+
     with mic as source:
         recognizer.adjust_for_ambient_noise(source)
         try:
             audio = recognizer.listen(source, timeout=timeout, phrase_time_limit=phrase_time_limit)
         except sr.WaitTimeoutError:
-            print("⏱️ Timeout: No speech detected.")
-            return "I didn't hear anything."
+            return "I didn’t hear anything."
 
-    try:
-        command = recognizer.recognize_google(audio).lower()
-        print(f"[Command] {command}")
+    # Save temp wav
+    temp_path = Path(__file__).resolve().parent / "temp_cmd.wav"
+    with open(temp_path, "wb") as f:
+        f.write(audio.get_wav_data())
 
-        if len(command.split()) < 3 and retries > 0:
-            speak_with_voice_style("That was a bit short. Can you repeat it more clearly?", reya)
-            return listen_for_command(reya, timeout, phrase_time_limit, retries=retries - 1)
-
-        return command
-
-    except sr.UnknownValueError:
-        if retries > 0:
-            speak_with_voice_style("I didn't catch that. Could you say it again?", reya)
-            return listen_for_command(reya, timeout, phrase_time_limit, retries=retries - 1)
-        return "I didn't catch that."
-
-    except sr.RequestError as e:
-        return f"Speech Recognition error: {e}"
+    return transcribe_audio(str(temp_path))

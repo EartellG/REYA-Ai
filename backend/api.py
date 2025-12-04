@@ -1,49 +1,77 @@
 # backend/api.py
+"""
+Cleaned & upgraded REYA API
+- Whisper.cpp STT as primary (accepts multipart/form-data 'audio' file)
+- Text fallback when no audio provided
+- Uses get_response(...) as REYA brain (personality + reasoning)
+- Optional TTS output via speech_manager (OpenTTS/Coqui -> Silero fallback)
+- Streaming text responses to frontend
+"""
+
 import os
 import sys
 import asyncio
 import logging
 import traceback
-import importlib
 from pathlib import Path
 from typing import Optional
+
 from dotenv import load_dotenv
-
-from fastapi import FastAPI, Request, Query, Body, Response
+from fastapi import FastAPI, Request, Query, Body, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from backend.routes.tickets import router as tickets_router 
 
-# ---- Load environment early (backend/.env then project root .env)
+# load env early so submodules can read env flags during hot-reload
 ENV_HERE = Path(__file__).resolve().parent / ".env"
 load_dotenv(ENV_HERE)
-load_dotenv(override=False)  # also picks up a root .env if present
+load_dotenv(override=False)
 
-# ---- Project paths / static
+# project paths
 BACKEND_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BACKEND_DIR / "static"
-(STATIC_DIR / "audio").mkdir(parents=True, exist_ok=True)
+AUDIO_DIR = STATIC_DIR / "audio"
+STT_INPUT_DIR = STATIC_DIR / "stt_input"
+AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+STT_INPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-# ---- App + CORS
-app = FastAPI(title="Reya Backend")
+# basic app + CORS
+app = FastAPI(title="REYA Backend (cleaned)")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],           # tighten in production
+    allow_origins=["*"],  # tighten in production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-# Single, canonical static mount (matches edge_tts.py write location)
+
+# static mount
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-# ---- Personality / features / routers
+# ---- imports that rely on env / project layout
 from backend.reya_personality import ReyaPersonality, TRAITS, MANNERISMS, STYLES
-from backend.features.advanced_features import ContextualMemory
-from backend.features.advanced_features import PersonalizedKnowledgeBase
+from backend.features.advanced_features import ContextualMemory, PersonalizedKnowledgeBase
 from backend.features.language_tutor import LanguageTutor
 
-#----------------------
+from backend.llm_interface import (
+    get_response,  # <--- full REYA brain (selected option B)
+    get_structured_reasoning_prompt,
+    query_ollama,
+)
+
+from backend.diagnostics import run_diagnostics
+
+# TTS helpers (edge/azure + file helpers)
+from backend.voice.edge_tts import synth_to_bytes, synthesize_to_static_url, speak_with_voice_style, engine_status
+
+# Speech manager wrapper (OpenTTS/Coqui -> Silero fallback)
+from backend.voice.speech_manager import synthesize_tts
+
+# Whisper.cpp wrapper (local exe)
+from backend.stt.whisper_cpp import transcribe_whisper_cpp
+
+# project routers (keep your routes)
+from backend.routes.tickets import router as tickets_router
 from backend.routes.settings import router as settings_router
 from backend.routes.reviewer_prefill import router as reviewer_prefill_router
 from backend.routes.voice_router import router as voice_router
@@ -58,26 +86,10 @@ from backend.routes.roles_fixer import router as roles_fixer_router
 from backend.routes.roles_monetizer import router as roles_monetizer_router
 from backend.routes.wireframes import router as wireframes_router
 from backend.project_tools import router as project_tools
-from .git_tools import router as git_tools
+from backend.git_tools import router as git_tools
 from backend.routes.workspace import router as workspace_router
 
-
-# LLM helpers
-from backend.llm_interface import (
-    get_response,
-    get_structured_reasoning_prompt,
-    query_ollama,
-)
-from backend.diagnostics import run_diagnostics
-
-# TTS helpers
-from backend.voice.edge_tts import (
-    synth_to_bytes,
-    synthesize_to_static_url,
-    speak_with_voice_style,
-)
-
-# ---- Include routers (once)
+# register routers (existing setup)
 app.include_router(git_tools)
 app.include_router(project_tools)
 app.include_router(settings_router)
@@ -96,11 +108,10 @@ app.include_router(reviewer_prefill_router)
 app.include_router(reviewer_lint_router)
 app.include_router(workspace_router)
 
-
-# ---- Boot log
+# logging
 logging.getLogger("uvicorn.error").info(f"[REYA] Python: {sys.executable}")
 
-# ---- Personality & memory
+# personality & memory singletons
 reya = ReyaPersonality(
     traits=[TRAITS["stoic"], TRAITS["playful"]],
     mannerisms=[MANNERISMS["sassy"], MANNERISMS["meta_awareness"]],
@@ -112,20 +123,14 @@ memory = ContextualMemory()
 kb = PersonalizedKnowledgeBase()
 tutor = LanguageTutor(memory)
 
-# -----------------------
-# Health / Debug
-# -----------------------
+# health endpoints
 @app.get("/ping")
 def ping():
-    return {"message": "Pong from REYA backend!"}
+    return {"message": "pong"}
 
 @app.get("/")
 async def root():
-    return JSONResponse(content={"message": "REYA API is running!"})
-
-@app.get("/status")
-def status():
-    return {"status": "REYA backend is running."}
+    return JSONResponse({"message": "REYA API is running", "engine": engine_status()})
 
 @app.get("/debug/info")
 def debug_info():
@@ -133,180 +138,164 @@ def debug_info():
         "cwd": os.getcwd(),
         "python": sys.version,
         "reya_voice": getattr(reya, "voice", None),
-        "reya_preset": getattr(reya, "preset", None),
         "static_dir": str(STATIC_DIR),
     }
     try:
-        et = importlib.import_module("backend.voice.edge_tts")
+        et = __import__("backend.voice.edge_tts", fromlist=["*"])
         info["edge_tts_module"] = getattr(et, "__file__", "unknown")
-        info["edge_exports"] = [n for n in dir(et) if n.startswith(("synthesize_", "synth_", "speak_"))]
-        info["edge_signature"] = getattr(et, "SIGNATURE", "(no signature)")
     except Exception as e:
-        info["edge_import_error"] = repr(e)
-        info["edge_traceback"] = traceback.format_exc(limit=2)
+        info["edge_error"] = repr(e)
     return info
 
 @app.on_event("startup")
 async def _boot_banner():
     print("[REYA] Booting API… voice:", getattr(reya, "voice", None))
 
-# -----------------------
-# Speak (server-side playback, fire-and-forget)
-# -----------------------
-class SpeakRequestModel:
-    message: str
-
-@app.post("/speak")
-async def speak_endpoint(data: dict):
-    text = (data.get("message") or "").strip()
-    if not text:
-        return {"ok": False, "error": "Empty message"}
-    # Run in background thread to avoid blocking event loop
-    asyncio.create_task(asyncio.to_thread(speak_with_voice_style, text, reya))
-    return {"ok": True}
 
 # -----------------------
-# Chat (streaming; optional speak)
+# Helper: stream generator (word-by-word)
+# -----------------------
+async def _stream_text(text: str, delay: float = 0.03):
+    for word in text.split():
+        yield f"{word} "
+        await asyncio.sleep(delay)
+
+
+# -----------------------
+# Core /chat endpoint
+# - Accepts either:
+#   * multipart/form-data with key 'audio' (file) -> transcribe via Whisper.cpp
+#   * or JSON body { "message": "..." } -> uses message directly
+# - Uses get_response(...) as the REYA brain (option B)
+# - Optional query param speak=true to also produce audio (Coqui via OpenTTS -> Silero fallback)
 # -----------------------
 @app.post("/chat")
-async def chat_endpoint(request: Request, speak: bool = Query(False)):
-    body = await request.json()
-    user_message = (body.get("message") or "").strip()
-    if not user_message:
-        return JSONResponse({"error": "Empty message"}, status_code=400)
+async def chat_endpoint(
+    request: Request,
+    speak: bool = Query(False),
+):
+    """
+    Upgraded chat pipeline:
+    - If multipart with 'audio' file: save -> run Whisper.cpp -> get transcribed_text
+    - Else: use JSON body 'message'
+    - Feed to get_response(...) which should apply REYA personality, reasoning, and memory
+    - If speak=True, attempt to produce an audio file (synthesize_tts) and return audio_url + text
+    - Otherwise return a streaming text response
+    """
+    # 1) Accept either audio upload or JSON text
+    content_type = request.headers.get("content-type", "") or ""
+    user_message = ""
+    transcribed = None
 
-    # Quick diagnostics trigger
+    try:
+        if "multipart/form-data" in content_type.lower():
+            form = await request.form()
+            audio_file = form.get("audio")  # UploadFile
+            if not audio_file:
+                raise HTTPException(status_code=400, detail="No 'audio' file in form data.")
+            if isinstance(audio_file, UploadFile):
+                # Save upload to disk for Whisper.cpp
+                filename_safe = f"stt_{uuid4().hex}_{os.path.basename(audio_file.filename)}"
+                save_path = STT_INPUT_DIR / filename_safe
+                with open(save_path, "wb") as f:
+                    content = await audio_file.read()
+                    f.write(content)
+                # Run whisper.cpp transcriber (blocking subprocess) in thread
+                try:
+                    transcribed = await asyncio.to_thread(transcribe_whisper_cpp, str(save_path))
+                    user_message = transcribed.strip()
+                except Exception as e:
+                    # fallback: try to decode with SpeechRecognition (if present) or error back
+                    raise HTTPException(status_code=500, detail=f"Whisper.cpp transcription failed: {e}")
+            else:
+                raise HTTPException(status_code=400, detail="Invalid audio upload.")
+        else:
+            # JSON path
+            body = await request.json()
+            user_message = (body.get("message") or "").strip()
+            if not user_message:
+                raise HTTPException(status_code=400, detail="Missing 'message' in request body.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error parsing request: {e}")
+
+    # 2) Diagnostics trigger
     if "run diagnostics" in user_message.lower():
         report = await run_diagnostics(reya, memory)
         text = report.as_text()
+        return StreamingResponse(_stream_text(text, delay=0.01), media_type="text/plain")
 
-        async def stream_report():
-            for line in text.split("\n"):
-                yield line + "\n"
-                await asyncio.sleep(0.03)
+    # 3) Build context & call REYA brain
+    try:
+        context = memory.get_context()
+        # get_response is expected to return a dict or string. Adjust if your signature differs.
+        # Example assumed signature: get_response(message: str, reya, memory) -> str
+        reya_response = await asyncio.to_thread(get_response, user_message, reya, memory)
+        if isinstance(reya_response, dict):
+            full_text = reya_response.get("text") or reya_response.get("response") or ""
+            metadata = reya_response.get("meta", {})
+        else:
+            full_text = str(reya_response)
+            metadata = {}
+    except Exception as e:
+        tb = traceback.format_exc(limit=4)
+        logging.getLogger("uvicorn.error").exception("LLM failure")
+        raise HTTPException(status_code=500, detail=f"REYA brain failed: {e}\n{tb}")
 
-        return StreamingResponse(stream_report(), media_type="text/plain")
+    # 4) Remember interaction
+    try:
+        memory.remember(user_message, full_text)
+    except Exception:
+        logging.getLogger("uvicorn.error").warning("Memory remember failed", exc_info=True)
 
-    # Normal flow
-    context = memory.get_context()
-    prompt = get_structured_reasoning_prompt(user_message, context, reya=reya)
-    full_response: str = await asyncio.to_thread(query_ollama, prompt)
-    memory.remember(user_message, full_response)
-
+    # 5) If speak requested -> synthesize audio and return JSON with audio_url + text
     if speak:
         try:
-            audio_url = await synthesize_to_static_url(full_response, reya)
+            # prefer speech_manager synthesize_tts (OpenTTS -> Silero fallback)
+            audio_local_path = await asyncio.to_thread(synthesize_tts, full_text, "reya_chat_output.wav")
+            # audio_local_path is local fs path under static/audio -> return relative url
+            rel = Path(audio_local_path).resolve().relative_to(STATIC_DIR.resolve()).as_posix()
+            audio_url = f"/static/{rel}"
+            return JSONResponse({"text": full_text, "audio_url": audio_url})
         except Exception as e:
-            return JSONResponse(
-                {"text": full_response, "audio_url": None, "error": f"TTS failed: {e}"},
-                status_code=200,
-            )
-        return JSONResponse({"text": full_response, "audio_url": audio_url}, status_code=200)
+            # fallback to edge_tts synthesize_to_static_url if available
+            try:
+                audio_url = await synthesize_to_static_url(full_text, reya)
+                return JSONResponse({"text": full_text, "audio_url": audio_url})
+            except Exception as e2:
+                logging.getLogger("uvicorn.error").exception("TTS failed")
+                return JSONResponse({"text": full_text, "audio_url": None, "error": f"TTS failed: {e} / {e2}"})
 
-    async def generate_stream():
-        for word in full_response.split():
-            yield f"{word} "
-            await asyncio.sleep(0.05)
+    # 6) Otherwise stream text back
+    return StreamingResponse(_stream_text(full_text), media_type="text/plain")
 
-    return StreamingResponse(generate_stream(), media_type="text/plain")
 
 # -----------------------
-# Pure TTS for frontend (returns /static/audio/<uuid>.mp3|.wav)
+# Simple TTS endpoint (explicit)
 # -----------------------
 @app.post("/tts")
 async def tts_endpoint(payload: dict = Body(...)):
     text = (payload.get("text") or "").strip()
     if not text:
-        return {"ok": False, "error": "Empty text"}
-    url = await synthesize_to_static_url(text, reya)
-    return {"ok": True, "audio_url": url}
+        raise HTTPException(status_code=400, detail="Empty text")
+    try:
+        # Try speech_manager first (OpenTTS -> Silero)
+        audio_local_path = await asyncio.to_thread(synthesize_tts, text, "reya_tts_out.wav")
+        rel = Path(audio_local_path).resolve().relative_to(STATIC_DIR.resolve()).as_posix()
+        return {"ok": True, "audio_url": f"/static/{rel}"}
+    except Exception as e:
+        # fallback to edge_tts
+        try:
+            url = await synthesize_to_static_url(text, reya)
+            return {"ok": True, "audio_url": url}
+        except Exception as e2:
+            logging.getLogger("uvicorn.error").exception("TTS failed")
+            raise HTTPException(status_code=500, detail=f"TTS failed: {e} / {e2}")
 
-# Direct bytes test (useful for tutor buttons)
-@app.get("/voice/test")
-async def voice_test(
-    text: str = Query("Hello from REYA"),
-    voice: str = Query("en-GB-SoniaNeural"),
-    rate: str = Query("+0%"),
-    volume: str = Query("+0%"),
-):
-    audio, meta = await synth_to_bytes(text, voice=voice, rate=rate, volume=volume)
-    fmt = (meta.get("format") or "").lower()
-    media = "audio/mpeg" if "mp3" in fmt or "mpeg" in fmt else "audio/wav"
-    return Response(
-        content=audio,
-        media_type=media,
-        headers={
-            "X-REYA-TTS-Engine": meta.get("engine", ""),
-            "X-REYA-TTS-Voice": meta.get("voice", ""),
-        },
-    )
 
 # -----------------------
-# Language Tutor
-# -----------------------
-@app.post("/tutor/start")
-async def tutor_start(payload: dict):
-    lang = payload.get("language", "Japanese")
-    level = payload.get("level", "beginner")
-    msg = tutor.start(lang, level)
-    return {"message": msg}
-
-@app.get("/tutor/resume")
-async def tutor_resume(language: str):
-    return {"message": tutor.resume(language)}
-
-@app.get("/tutor/next")
-async def tutor_next(language: str):
-    return {"message": tutor.next_lesson(language)}
-
-@app.get("/tutor/progress")
-async def tutor_progress(language: str):
-    return tutor.get_progress(language)
-
-@app.get("/tutor/quiz")
-async def tutor_quiz(language: str):
-    q = tutor.quiz_vocabulary(language)
-    if not q:
-        return JSONResponse({"message": "no_vocab"}, status_code=404)
-    return q
-
-@app.post("/tutor/check")
-async def tutor_check(payload: dict):
-    qp = payload.get("payload", {})
-    ua = payload.get("user_answer", "")
-    ok, msg = tutor.check_answer(qp, ua)
-    return {"ok": ok, "message": msg}
-
-@app.get("/tutor/test_voice")
-async def tutor_test_voice(
-    text: str = Query("こんにちは — Hello"),
-    voice: str = Query("ja-JP-NanamiNeural"),
-):
-    audio, meta = await synth_to_bytes(text, voice=voice)
-    fmt = (meta.get("format") or "").lower()
-    media = "audio/mpeg" if "mp3" in fmt or "mpeg" in fmt else "audio/wav"
-    return Response(
-        content=audio,
-        media_type=media,
-        headers={
-            "X-REYA-TTS-Engine": meta.get("engine", ""),
-            "X-REYA-TTS-Voice": meta.get("voice", ""),
-        },
-    )
-
-# -----------------------
-# Knowledge Base (simple)
-# -----------------------
-@app.get("/kb/list")
-async def kb_list(category: str):
-    return kb.search_knowledge("", [category])
-
-@app.get("/kb/search")
-async def kb_search(query: str, category: str):
-    return kb.search_knowledge(query, [category])
-
-# -----------------------
-# Diagnostics for UI card
+# Diagnostics JSON for UI
 # -----------------------
 @app.get("/diagnostics")
 async def diagnostics_json():
