@@ -1,25 +1,25 @@
 # backend/voice/stt.py
-
 import os
 import random
+import wave
 import asyncio
-import speech_recognition as sr
-from fuzzywuzzy import fuzz
+import tempfile
+import traceback
 from pathlib import Path
+from typing import Optional
+
+import pyaudio
+from fuzzywuzzy import fuzz
 
 from backend.stt.whisper_cpp import transcribe_whisper_cpp
-from backend.voice.edge_tts import speak_with_voice_style
 from backend.voice.speech_manager import synthesize_tts
 
-# --- Microphone setup ---
-recognizer = sr.Recognizer()
-mic = sr.Microphone()
-
-# --- Wake words ---
+# -------------------------------------------------------
+# WAKE WORDS / CONFIG
+# -------------------------------------------------------
 WAKE_WORDS = ["reya", "rea", "raya", "rhea", "hey reya", "ok reya"]
 MIN_WAKE_CONFIDENCE = 80
 
-# Personality-based randomized REYA wake replies
 WAKE_REPLIES = [
     "I'm listening.",
     "Yes? What’s on your mind?",
@@ -29,119 +29,168 @@ WAKE_REPLIES = [
     "Listening~",
     "Hm? Oh—yes, I hear you.",
     "At your service.",
-    "Have I been Summoned? very well then, speak.",
+    "Have I been summoned? Very well then, speak.",
 ]
 
+# PyAudio recording defaults — matches whisper/common 16k input
+CHUNK = 1024
+FORMAT = pyaudio.paInt16
+CHANNELS = 1
+RATE = 16000
+
+
 # -------------------------------------------------------
-# Wake-word fuzzy match
+# FUZZY WAKE WORD MATCH
 # -------------------------------------------------------
 def match_wake_word(text: str) -> bool:
+    text = (text or "").lower().strip()
     for wake in WAKE_WORDS:
         score = fuzz.ratio(wake, text)
         if score >= MIN_WAKE_CONFIDENCE:
-            print(f"[Wake Match] '{text}' → {wake} ({score}%)")
+            print(f"[WakeWord] '{text}' matched '{wake}' ({score}%)")
             return True
     return False
 
 
 # -------------------------------------------------------
-# RANDOMIZED personality wake reply
+# RANDOMIZED WAKE RESPONSE (runs synth on a thread)
 # -------------------------------------------------------
-async def speak_wake_reply(reya):
+async def speak_wake_reply(reya) -> None:
     reply = random.choice(WAKE_REPLIES)
     try:
-        await asyncio.to_thread(speak_with_voice_style, reply, reya)
-    except Exception:
-        # fallback to silent fail — we never want wake to break STT
-        print("[Wake Reply] TTS unavailable, skipping.")
+        # synthesize_tts is synchronous (returns file path) so run in thread
+        await asyncio.to_thread(synthesize_tts, reply)
+    except Exception as e:
+        print(f"[WakeReply ERROR] {e}")
 
 
 # -------------------------------------------------------
-# ALWAYS-LISTENING WAKE WORD DETECTOR
-# - Quiet background listener
-# - When wake word spoken → returns control to REYA main loop
+# MICROPHONE CAPTURE (PyAudio) — returns path to WAV file
 # -------------------------------------------------------
-def wait_for_wake_word(reya, test_mode=False):
-    print("🎧 Always-listening enabled… waiting for wake word…")
+def _record_microphone_to_temp(seconds: int = 3, device_index: Optional[int] = None) -> str:
+    """
+    Record `seconds` of microphone audio to a temp WAV file and return its path.
+    This function is synchronous (blocking) and uses PyAudio.
+    """
+    p = None
+    tmp_fpath = None
+    try:
+        p = pyaudio.PyAudio()
 
-    with mic as source:
-        recognizer.adjust_for_ambient_noise(source)
+        # open stream (might raise OSError if no device)
+        stream = p.open(
+            format=FORMAT,
+            channels=CHANNELS,
+            rate=RATE,
+            input=True,
+            frames_per_buffer=CHUNK,
+            input_device_index=device_index,
+        )
 
-        while True:
+        frames = []
+        # read loop — protect against short read errors
+        total_reads = int(RATE / CHUNK * max(1, seconds))
+        for _ in range(total_reads):
             try:
-                audio = recognizer.listen(source)
-                text = recognizer.recognize_google(audio).lower()
-
-                if test_mode:
-                    print(f"[DEBUG] Heard: {text}")
-
-                if match_wake_word(text):
-                    asyncio.create_task(speak_wake_reply(reya))
-                    return True
-
-            except sr.UnknownValueError:
-                continue
+                data = stream.read(CHUNK, exception_on_overflow=False)
             except Exception as e:
-                print(f"[Wake Error] {e}")
-                continue
+                # on read error, append silence for this chunk
+                print(f"[Mic read warning] {e}")
+                data = (b"\x00" * CHUNK * 2)  # paInt16 -> 2 bytes/sample
+            frames.append(data)
 
+        stream.stop_stream()
+        stream.close()
 
-# -------------------------------------------------------
-# LOCAL STT PIPELINE:
-# Whisper.cpp → Google SR fallback → graceful fail
-# -------------------------------------------------------
-def transcribe_audio(audio_path: str) -> str:
-    """
-    Attempts Whisper.cpp first.
-    Falls back to speech_recognition → Google Web STT.
-    And falls back to a safe string on total failure.
-    """
-    # ---------------------------
-    # Whisper.cpp FIRST
-    # ---------------------------
-    try:
-        print("[STT] Trying Whisper.cpp…")
-        text = transcribe_whisper_cpp(audio_path)
-        if text.strip():
-            print("[STT] Whisper.cpp success.")
-            return text.strip()
-    except Exception as e:
-        print(f"[STT Whisper.cpp failed] {e}")
+        # write to temp file
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+        tmp_fpath = tmp.name
+        tmp.close()
 
-    # ---------------------------
-    # Google fallback (SpeechRecognition)
-    # ---------------------------
-    try:
-        print("[STT] Trying Google SpeechRecognition fallback…")
-        with sr.AudioFile(audio_path) as source:
-            audio = recognizer.record(source)
-        text = recognizer.recognize_google(audio)
-        print("[STT] Google SR success.")
-        return text.lower().strip()
-    except Exception as e:
-        print(f"[STT Google fallback failed] {e}")
+        wf = wave.open(tmp_fpath, "wb")
+        wf.setnchannels(CHANNELS)
+        wf.setsampwidth(p.get_sample_size(FORMAT))
+        wf.setframerate(RATE)
+        wf.writeframes(b"".join(frames))
+        wf.close()
 
-    # Total failure → safe, graceful
-    print("[STT] Total failure. Returning fallback text.")
-    return "I didn't catch that."
+        return tmp_fpath
 
-
-# -------------------------------------------------------
-# DIRECT MICROPHONE COMMAND LISTENER (after wake word)
-# -------------------------------------------------------
-def listen_for_command(reya, timeout=10, phrase_time_limit=15):
-    print("🎤 Listening for command…")
-
-    with mic as source:
-        recognizer.adjust_for_ambient_noise(source)
+    finally:
         try:
-            audio = recognizer.listen(source, timeout=timeout, phrase_time_limit=phrase_time_limit)
-        except sr.WaitTimeoutError:
-            return "I didn’t hear anything."
+            if p is not None:
+                p.terminate()
+        except Exception:
+            pass
 
-    # Save temp wav
-    temp_path = Path(__file__).resolve().parent / "temp_cmd.wav"
-    with open(temp_path, "wb") as f:
-        f.write(audio.get_wav_data())
 
-    return transcribe_audio(str(temp_path))
+# -------------------------------------------------------
+# ALWAYS-LISTENING WAKE DETECTOR (async)
+# -------------------------------------------------------
+async def wait_for_wake_word(reya, test_mode: bool = False, model_size: str = "small") -> bool:
+    """
+    Always-listening loop that records short slices to temp files,
+    transcribes with whisper.cpp, and returns True when wake word matched.
+    """
+    print("🎧 Whisper.cpp Always-Listening Enabled – waiting for wake word…")
+    while True:
+        try:
+            # record 1s slice
+            temp_path = await asyncio.to_thread(_record_microphone_to_temp, 1)
+
+            try:
+                text = await asyncio.to_thread(transcribe_whisper_cpp, temp_path, "small")
+
+                text = (text or "").lower().strip()
+            except Exception as e:
+                # log and continue — do not crash the wake loop
+                print(f"[Wake STT error] {e}")
+                text = ""
+
+            # cleanup temporary file
+            try:
+                os.unlink(temp_path)
+            except Exception:
+                pass
+
+            if test_mode:
+                print(f"[Wake DEBUG] Heard: {text}")
+
+            if text and match_wake_word(text):
+                # spawn wake reply but don't await here (background)
+                asyncio.create_task(speak_wake_reply(reya))
+                return True
+
+        except Exception as e:
+            print(f"[Wake loop error] {e}\n{traceback.format_exc()}")
+            # short backoff to avoid hot-looping on device errors
+            await asyncio.sleep(0.5)
+
+
+# -------------------------------------------------------
+# LISTEN FOR A COMMAND (after wake) — async
+# -------------------------------------------------------
+async def listen_for_command(reya, max_seconds: int = 8, model_size: str = "large") -> str:
+    """
+    Record up to `max_seconds`, transcribe with Whisper.cpp and return the text.
+    Returns a friendly fallback string on total failure.
+    """
+    print("🎤 Listening for command…")
+    try:
+        temp_path = await asyncio.to_thread(_record_microphone_to_temp, max_seconds)
+    except Exception as e:
+        print(f"[listen_for_command] mic record failed: {e}")
+        return "I didn’t catch that."
+
+    try:
+        text = await asyncio.to_thread(transcribe_whisper_cpp, temp_path, "large")
+
+        return (text or "").strip()
+    except Exception as e:
+        print(f"[Command STT ERROR] {e}\n{traceback.format_exc()}")
+        return "I didn’t catch that."
+    finally:
+        try:
+            os.unlink(temp_path)
+        except Exception:
+            pass

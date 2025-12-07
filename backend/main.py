@@ -9,6 +9,7 @@ import importlib
 import tempfile
 import threading
 import random
+import re
 from pathlib import Path
 from typing import Optional, Tuple, Dict, Any, cast
 
@@ -60,19 +61,43 @@ from backend.llm_interface import get_structured_reasoning_prompt, query_ollama
 # diagnostics
 from backend.diagnostics import run_diagnostics
 
-# tts & speech manager
+# tts & speech manager (existing)
 from backend.voice.edge_tts import (
     synth_to_bytes,
     synthesize_to_static_url,
     speak_with_voice_style,
     engine_status as tts_engine_status,
 )
-from backend.voice.speech_manager import synthesize_tts  # wrapper that can hit OpenTTS / Silero
+from backend.voice.speech_manager import synthesize_tts, play_local_wav  # XTTS primary + local wav helper
 
-# stt (whisper.cpp wrapper)
+
+# =====================================================================
+# XTTS (Coqui) – use your existing xtts_coqui wrapper
+# =====================================================================
+try:
+    # import main helpers and diagnostics (note alias for engine_status -> xtts_engine_status)
+    from backend.voice.xtts_coqui import (
+    synthesize_xtts,
+    synthesize_xtts_to_static_url,
+    engine_status as xtts_engine_status,
+)
+
+    XTTS_AVAILABLE = True
+except Exception as e:
+    # keep fallbacks safe — define minimal placeholders so main.py won't NameError
+    synthesize_xtts = None
+    synthesize_xtts_to_static_url = None
+
+    xtts_engine_status = lambda: {"engine": "unavailable"}
+    XTTS_AVAILABLE = False
+    logging.getLogger("uvicorn.error").warning(f"[XTTS] not available: {e}")
+
+
+
+# Whisper.cpp with model selection (small/large)
 from backend.stt.whisper_cpp import transcribe_whisper_cpp
 
-# wake-word / stt utilities (the voice/stt.py you updated)
+# wake-word / stt utilities
 from backend.voice.stt import wait_for_wake_word, listen_for_command
 
 # -------------------------------------------------------------------------
@@ -87,9 +112,10 @@ reya = ReyaPersonality(
     traits=[TRAITS["stoic"], TRAITS["playful"]],
     mannerisms=[MANNERISMS["sassy"], MANNERISMS["meta_awareness"]],
     style=STYLES["oracle"],
-    voice="en-GB-SoniaNeural",
+    voice=os.getenv("REYA_VOICE_SPEAKER", "female_en_5"),
     preset={"rate": "+14%", "pitch": "-5Hz", "volume": "+0%"},
 )
+
 
 memory = ContextualMemory()
 kb = PersonalizedKnowledgeBase()
@@ -113,7 +139,7 @@ class ReyaCore:
         lang: Optional[str] = None
         if "japanese" in t:
             lang = "Japanese"
-        elif "mandarin" in t:
+        elif "mandarin" in t or "chinese" in t:
             lang = "Mandarin"
         level = "beginner"
         if "intermediate" in t:
@@ -295,6 +321,112 @@ def random_wake_reply() -> str:
     return random.choice(WAKE_REPLIES)
 
 # -------------------------------------------------------------------------
+# Language detection helper for TTS
+# -------------------------------------------------------------------------
+_japanese_regex = re.compile(r'[\u3040-\u30ff\u4e00-\u9fff]')  # hiragana/katakana/kanji presence
+_chinese_regex = re.compile(r'[\u4e00-\u9fff]')
+
+def detect_language_for_tts(text: str) -> str:
+    """
+    Very small heuristic:
+      - If contains Japanese-specific ranges => 'ja'
+      - If contains CJK unified range without Japanese hiragana/katakana => 'zh'
+      - else => 'en'
+    This is intentionally conservative — feel free to replace with a robust langid model.
+    """
+    if not text:
+        return "en"
+    if _japanese_regex.search(text) and any('\u3040' <= ch <= '\u30ff' for ch in text):
+        return "ja"
+    if _chinese_regex.search(text) and not any('\u3040' <= ch <= '\u30ff' for ch in text):
+        return "zh"
+    # fallback: check for explicit language keywords (user may send 'in Japanese')
+    tl = text.lower()
+    if "japanese" in tl or "nihongo" in tl:
+        return "ja"
+    if "mandarin" in tl or "chinese" in tl:
+        return "zh"
+    return "en"
+
+# -------------------------------------------------------------------------
+# XTTS wrapper functions (try XTTS, fall back to edge_tts or silero)
+# -------------------------------------------------------------------------
+async def synth_to_static_url_primary(text: str, reya_obj, lang_hint: Optional[str] = None) -> Optional[str]:
+    """
+    Return a /static/ URL (relative) to the generated audio file.
+    Prefers XTTS if available. Falls back to synthesize_to_static_url (edge_tts) or synthesize_tts (silero).
+    """
+    lang = lang_hint or detect_language_for_tts(text)
+    voice = getattr(reya_obj, "voice", None)
+    # 1) XTTS primary
+    if XTTS_AVAILABLE and synthesize_xtts_to_static_url is not None:
+        try:
+            url = await asyncio.to_thread(synthesize_xtts_to_static_url, text, voice, lang)
+            if url:
+                return url
+        except Exception as e:
+            logging.getLogger("uvicorn.error").warning(f"[XTTS] synthesize_xtts_to_static_url failed: {e}")
+
+    # 2) edge_tts (if configured) — still keep as secondary static generator
+    try:
+        url = await synthesize_to_static_url(text, reya_obj)
+        if url:
+            return url
+    except Exception as e:
+        logging.getLogger("uvicorn.error").warning(f"[Edge TTS] synthesize_to_static_url failed: {e}")
+
+    # 3) fallback: synchronous local silero/OpenTTS via speech_manager -> returns local path
+    try:
+        audio_path = await asyncio.to_thread(synthesize_tts, text, filename=f"reya_{os.urandom(4).hex()}.wav")
+        if audio_path:
+            # convert file path to /static/ relative URL if under STATIC_DIR
+            try:
+                audio_url = "/" + os.path.relpath(audio_path, STATIC_DIR).replace("\\", "/")
+                return audio_url
+            except Exception:
+                return audio_path
+    except Exception as e:
+        logging.getLogger("uvicorn.error").error(f"[Fallback TTS] synthesize_tts failed: {e}")
+
+    return None
+
+def speak_primary_now(text: str, reya_obj, lang_hint: Optional[str] = None) -> Optional[str]:
+    """
+    Synchronous/quick-play wrapper — tries XTTS (if it returns local file path),
+    otherwise calls synthesize_tts. Returns local filepath or None.
+    """
+    lang = lang_hint or detect_language_for_tts(text)
+    voice = getattr(reya_obj, "voice", None)
+
+    # always write into backend/static/audio so we can reuse the file if desired
+    AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+    out_path = AUDIO_DIR / f"reya_{os.urandom(4).hex()}.wav"
+    out_path_str = str(out_path)
+
+    # --- 1) XTTS primary ---
+    if XTTS_AVAILABLE and synthesize_xtts is not None:
+        try:
+            path = synthesize_xtts(
+                text=text,
+                speaker=voice,
+                language=lang,
+                output_path=out_path_str,  # ✅ correct kwarg for your xtts_coqui
+            )
+            if path:
+                return str(Path(path).resolve())
+        except Exception as e:
+            logging.getLogger("uvicorn.error").warning(f"[XTTS] synthesize_xtts failed: {e}")
+
+    # --- 2) Fallback synchronous synth (still using speech_manager, which is XTTS-forced now) ---
+    try:
+        path = synthesize_tts(text, filename=out_path_str)
+        return str(Path(path).resolve())
+    except Exception as e:
+        logging.getLogger("uvicorn.error").error(f"[Fallback TTS] synthesize_tts failed for speak_primary_now: {e}")
+        return None
+
+
+# -------------------------------------------------------------------------
 # Health / Debug endpoints
 # -------------------------------------------------------------------------
 @app.get("/ping")
@@ -303,7 +435,10 @@ def ping():
 
 @app.get("/")
 def root():
-    return {"ok": True, "service": "reya-backend", "version": "4.0", "tts_engine": tts_engine_status().get("engine_choice")}
+    # prefer XTTS engine status if available
+    engine = xtts_engine_status() if XTTS_AVAILABLE else tts_engine_status()
+    engine_choice = engine.get("engine") if isinstance(engine, dict) else engine
+    return {"ok": True, "service": "reya-backend", "version": "4.0", "tts_engine": engine_choice}
 
 @app.get("/debug/info")
 def debug_info():
@@ -313,7 +448,7 @@ def debug_info():
         "reya_voice": getattr(reya, "voice", None),
         "reya_preset": getattr(reya, "preset", None),
         "static_dir": str(STATIC_DIR),
-        "tts": tts_engine_status(),
+        "tts": (xtts_engine_status() if XTTS_AVAILABLE else tts_engine_status()),
     }
     return info
 
@@ -325,8 +460,19 @@ async def speak_endpoint(data: dict = Body(...)):
     text = (data.get("message") or "").strip()
     if not text:
         raise HTTPException(status_code=400, detail="Empty message")
-    # run synth/play in background so API returns quickly
-    asyncio.create_task(asyncio.to_thread(speak_with_voice_style, text, reya))
+
+    lang = detect_language_for_tts(text)
+    # generate and play in background
+    def _play():
+        try:
+            path = speak_primary_now(text, reya, lang_hint=lang)
+            if path:
+                # Play via simpleaudio / local speaker
+                play_local_wav(path, block=False)
+        except Exception as e:
+            logging.getLogger("uvicorn.error").error(f"[Speak bg] playback failed: {e}")
+
+    asyncio.create_task(asyncio.to_thread(_play))
     return {"ok": True}
 
 # -------------------------------------------------------------------------
@@ -337,7 +483,10 @@ async def tts_endpoint(payload: dict = Body(...)):
     text = (payload.get("text") or "").strip()
     if not text:
         raise HTTPException(status_code=400, detail="Empty text")
-    url = await synthesize_to_static_url(text, reya)
+    lang = payload.get("lang") or detect_language_for_tts(text)
+    url = await synth_to_static_url_primary(text, reya, lang_hint=lang)
+    if not url:
+        raise HTTPException(status_code=500, detail="TTS generation failed")
     return {"ok": True, "audio_url": url}
 
 # -------------------------------------------------------------------------
@@ -366,12 +515,12 @@ async def chat_endpoint(request: Request, speak: bool = Query(False), audio: Opt
 
         # try whisper.cpp first
         try:
-            transcription = transcribe_whisper_cpp(tmp_path)
+            # Use Whisper-LARGE for high-quality full-sentence transcription (you already have both models)
+            transcription = transcribe_whisper_cpp(tmp_path, model_size="large")
             user_message = transcription.strip()
         except Exception as e:
             # log and fall back to other STT options if you implement them
             logging.getLogger("uvicorn.error").warning(f"Whisper.cpp failed: {e}")
-            # try speech_recognition fallback (if configured) — not implemented here
             user_message = ""  # treat as empty and handle below
 
         # cleanup temp file
@@ -406,14 +555,15 @@ async def chat_endpoint(request: Request, speak: bool = Query(False), audio: Opt
     memory.remember(user_message, full_response)
 
     if speak:
+        # choose language for TTS based on user message and response
+        lang = detect_language_for_tts(user_message or full_response)
         try:
-            audio_url = await synthesize_to_static_url(full_response, reya)
+            audio_url = await synth_to_static_url_primary(full_response, reya, lang_hint=lang)
         except Exception as e:
-            # fallback: produce local silero file via speech_manager
-            logging.getLogger("uvicorn.error").warning(f"TTS synth_to_static_url failed: {e}; attempting speech_manager fallback")
+            logging.getLogger("uvicorn.error").warning(f"TTS synth_to_static_url_primary failed: {e}; attempting fallback")
             try:
+                # fallback synchronous silero:
                 audio_path = synthesize_tts(full_response, filename=f"reya_{os.urandom(4).hex()}.wav")
-                # convert file path to /static/ path if under STATIC_DIR
                 audio_url = "/" + os.path.relpath(audio_path, STATIC_DIR).replace("\\", "/")
             except Exception as e2:
                 logging.getLogger("uvicorn.error").error(f"All TTS fallbacks failed: {e2}")
@@ -435,6 +585,10 @@ async def tutor_start(payload: dict = Body(...)):
     lang = payload.get("language", "Japanese")
     level = payload.get("level", "beginner")
     msg = tutor.start(lang, level)
+    # Optionally speak lesson in appropriate language (XTTS primary)
+    if payload.get("speak", False):
+        lang_code = "ja" if lang.lower().startswith("j") else "zh" if lang.lower().startswith("m") else "en"
+        asyncio.create_task(asyncio.to_thread(speak_primary_now, msg, reya, lang_code))
     return {"message": msg}
 
 @app.get("/tutor/resume")
@@ -486,54 +640,84 @@ def set_primary_user(payload: _PUIn):
 app.include_router(memory_router)
 
 # -------------------------------------------------------------------------
-# Wake-word background thread
+# Wake-word background thread (Whisper.cpp + PyAudio Unified)
 # -------------------------------------------------------------------------
 def _wake_thread_loop():
     """
-    Calls wait_for_wake_word(core, reya) from your voice/stt.py.
-    When wake word detected, speak a randomized reply, then listen for a command,
-    transcribe/process it, and respond (optionally speak).
+    New Whisper.cpp-only always-listening loop.
+    - Waits for wake word using Whisper.cpp (small 1-sec recordings)
+    - Speaks randomized REYA wake reply
+    - Listens for a command (PyAudio recording)
+    - Sends it to core.handle_text()
+    - Speaks REYA's answer
     """
-    try:
-        while True:
+    import time
+    from backend.voice.stt import wait_for_wake_word, listen_for_command
+
+    logging.getLogger("uvicorn.error").info("🎧 Wake thread: started.")
+
+    while True:
+        try:
+            # --- 1) Wait for wake word ---
             try:
-                # wait_for_wake_word should block until detected (or raise)
-                wait_for_wake_word(core, test_mode=False)
-                # On wake, speak randomized reply
-                reply = random_wake_reply()
-                try:
-                    speak_with_voice_style(reply, reya)
-                except Exception as e:
-                    logging.getLogger("uvicorn.error").warning(f"Wake-response TTS failed: {e}")
-                # then listen for a command (blocking)
-                try:
-                    cmd = listen_for_command(core, timeout=10, phrase_time_limit=15, retries=1)
-                except Exception as e:
-                    logging.getLogger("uvicorn.error").warning(f"listen_for_command error: {e}")
-                    cmd = ""
-                if cmd:
-                    # handle command synchronously (we're in background thread)
-                    try:
-                        resp = core.handle_text(cmd)
-                        # speak response
-                        try:
-                            speak_with_voice_style(resp, reya)
-                        except Exception as e:
-                            logging.getLogger("uvicorn.error").warning(f"Wake-response TTS speak failed: {e}")
-                    except Exception as e:
-                        logging.getLogger("uvicorn.error").exception(f"Error handling command from wake-word: {e}")
-                # brief sleep to avoid tight loop
-                asyncio.sleep(0.1)
+                # Wake-word uses Whisper-SMALL for speed
+                asyncio.run(wait_for_wake_word(reya, model_size="small"))
+
             except Exception as e:
-                logging.getLogger("uvicorn.error").warning(f"[WARN] Wake loop exception: {e}")
-                # small pause before retrying
-                try:
-                    time = importlib.import_module("time")
-                    time.sleep(0.5)
-                except Exception:
-                    pass
-    except Exception as e:
-        logging.getLogger("uvicorn.error").error(f"Wake thread fatal: {e}")
+                logging.getLogger("uvicorn.error").warning(f"[Wake] detector error: {e}")
+                time.sleep(0.3)
+                continue
+
+                        # --- 2) Speak randomized wake reply ---
+            reply = random.choice([
+                "I'm listening.",
+                "Yes?",
+                "Go ahead.",
+                "What’s on your mind?",
+                "Mm? I’m here.",
+                "At your service.",
+            ])
+            try:
+                # generate audio via XTTS and play locally
+                lang_for_reply = detect_language_for_tts(reply)
+                path = speak_primary_now(reply, reya, lang_hint=lang_for_reply)
+                if path:
+                    play_local_wav(path, block=False)
+            except Exception as e:
+                logging.getLogger("uvicorn.error").warning(f"[Wake TTS] failed: {e}")
+
+
+            # --- 3) Listen for command via PyAudio ---
+            try:
+                # Commands also use Whisper-LARGE for accuracy
+                cmd = asyncio.run(listen_for_command(reya, model_size="large"))
+
+            except Exception as e:
+                logging.getLogger("uvicorn.error").warning(f"[Command] listen error: {e}")
+                cmd = ""
+
+            if not cmd or not str(cmd).strip():
+                continue
+
+            # --- 4) Process command with REYA Core ---
+            try:
+                response_text = core.handle_text(cmd)
+            except Exception as e:
+                logging.getLogger("uvicorn.error").exception(f"[Command] processing failed: {e}")
+                continue
+
+            # --- 5) Speak REYA’s answer ---
+            try:
+                lang_for_response = detect_language_for_tts(response_text)
+                speak_primary_now(response_text, reya, lang_hint=lang_for_response)
+            except Exception as e:
+                logging.getLogger("uvicorn.error").warning(f"[Response TTS] failed: {e}")
+
+            time.sleep(0.1)
+
+        except Exception as e:
+            logging.getLogger("uvicorn.error").exception(f"Wake thread fatal error: {e}")
+            time.sleep(1)
 
 @app.on_event("startup")
 def start_background_voice():
