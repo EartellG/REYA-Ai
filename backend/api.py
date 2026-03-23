@@ -62,7 +62,6 @@ from backend.llm_interface import (
 from backend.diagnostics import run_diagnostics
 
 # TTS helpers (edge/azure + file helpers)
-from backend.voice.edge_tts import synth_to_bytes, synthesize_to_static_url, speak_with_voice_style, engine_status
 
 # Speech manager wrapper (OpenTTS/Coqui -> Silero fallback)
 from backend.voice.speech_manager import synthesize_tts
