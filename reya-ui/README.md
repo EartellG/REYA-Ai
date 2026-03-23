@@ -70,12 +70,24 @@ export default tseslint.config([
 
 
 
-#backend run commend
-$ "C:\Users\Sydne.YAYU\REYA-Ai\.venv\Scripts\python.exe" -m uvicorn backend.api:app --reload --host 127.0.0.1 --port 8000
-- run From REYA-Ai(all caps).
+# backend run commend
+reya-xtts\Scripts\activate.bat
+- comm promt
+- uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
+- reya-xtts\Scripts\activate.bat  (powershell term)
+- ./reya-xtts/Scripts/python.exe backend/main.py
+- source .venv/Scripts/activate
+uvicorn backend.main:app --reload --reload-dir backend
+- source .venv/Scripts/activate
+uvicorn backend.main:app --host 127.0.0.1 --port 8000
 
 
-#frontend run commend
+
+# run venv
+source reya-xtts/Scripts/activate
+
+
+# frontend run commend
 Npm run dev
 - run From Reya-ui
- 
+

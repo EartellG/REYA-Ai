@@ -25,7 +25,7 @@ from backend.llm_interface import (
     get_installed_models,   # <<< fallback via CLI
     get_default_model,      # <<< use your configured default
 )
-from backend.voice.edge_tts import synthesize_to_file
+
 
 @dataclass
 class CheckResult:
