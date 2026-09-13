@@ -23,8 +23,7 @@ export default function ChatPanel() {
   // local UI state
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [speakEnabled, setSpeakEnabled] = useState(true);
-  const [lastAudioUrl, setLastAudioUrl] = useState<string | null>(null);
+  const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
 
   // streaming state
   const [streamingText, setStreamingText] = useState("");
@@ -86,15 +85,24 @@ export default function ChatPanel() {
         addAssistant(finalText);
       }
 
-      if (speakEnabled && finalText) {
-        const audio = await playReyaTTS(finalText); // posts to /tts
-        if (audio?.src) setLastAudioUrl(audio.src);
-      }
     } catch (err) {
       console.error("Chat error:", err);
       addAssistant("⚠️ Something went wrong.");
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const speakMessage = async (messageId: string, text: string) => {
+    if (speakingMessageId) return;
+
+    setSpeakingMessageId(messageId);
+    try {
+      await playReyaTTS(text);
+    } catch (err) {
+      console.error("TTS error:", err);
+    } finally {
+      setSpeakingMessageId(null);
     }
   };
 
@@ -106,29 +114,6 @@ export default function ChatPanel() {
     <div className="flex h-full flex-col">
       {/* Top tools */}
       <div className="px-4 pt-4 flex items-center gap-2">
-        <Button
-          variant={speakEnabled ? "default" : "secondary"}
-          onClick={() => setSpeakEnabled((v) => !v)}
-          title="Toggle voice playback"
-        >
-          {speakEnabled ? "🔊 Voice: On" : "🔇 Voice: Off"}
-        </Button>
-
-        {lastAudioUrl && (
-          <Button
-            variant="secondary"
-            onClick={async () => {
-              try {
-                const audio = new Audio(lastAudioUrl);
-                await audio.play();
-              } catch {}
-            }}
-            title="Play last reply audio"
-          >
-            ▶ Play reply
-          </Button>
-        )}
-
         <SystemStatusModal />
       </div>
 
@@ -144,6 +129,16 @@ export default function ChatPanel() {
               />
               <div className="max-w-[78%] rounded-2xl bg-zinc-800/60 border border-white/10 px-3 py-2 text-zinc-100">
                 {m.text}
+                <button
+                  type="button"
+                  onClick={() => speakMessage(m.id, m.text)}
+                  disabled={speakingMessageId !== null}
+                  className="ml-2 rounded px-1 text-sm text-zinc-400 hover:bg-zinc-700 hover:text-zinc-100 disabled:cursor-wait disabled:opacity-50"
+                  title={speakingMessageId === m.id ? "Reading response aloud…" : "Read response aloud"}
+                  aria-label={speakingMessageId === m.id ? "Reading response aloud" : "Read response aloud"}
+                >
+                  {speakingMessageId === m.id ? "🔊…" : "🔊"}
+                </button>
               </div>
             </div>
           ) : (

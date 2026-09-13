@@ -4,7 +4,9 @@ import logging
 
 class AudioController:
     def __init__(self):
-        self._lock = threading.Lock()
+        # `play` stops any current audio while holding the controller lock.
+        # This must be re-entrant because `stop` uses the same lock.
+        self._lock = threading.RLock()
         self._current_playback = None
 
     def play(self, wav_path: str, block: bool = False):
